@@ -428,16 +428,19 @@ function generarCodigo(){
 async function crearHogar(){
   const nombre = ($('#hogarNombre').value || '').trim() || 'Mi hogar';
   const u = S.user, cod = generarCodigo(), hid = db.collection('hogares').doc().id;
-  const b = db.batch();
-  b.set(db.collection('hogares').doc(hid), {
-    nombre: nombre.slice(0, 60), ownerUid: u.uid, ownerEmail: u.email || '', miembros: [u.uid],
-    integrantes: {[u.uid]: {nombre: u.displayName || '', email: u.email || ''}},
-    codigoActual: cod, limiteIntegrantes: LIMITE_INTEGRANTES,
-    demoHasta: TS.fromMillis(Date.now() + DIAS_DEMO * 86400000), creado: FV.serverTimestamp(), version: 1
-  });
-  b.set(db.collection('invitaciones').doc(cod), {hogarId: hid, ownerUid: u.uid, creado: FV.serverTimestamp()});
-  b.set(db.collection('usuarios').doc(u.uid), {hogarId: hid}, {merge: true});
-  try { await b.commit(); } catch (e) { return errPant('No se pudo crear el hogar (' + (e.code || e.message) + ')'); }
+  let paso = 'hogar';
+  try {
+    await db.collection('hogares').doc(hid).set({
+      nombre: nombre.slice(0, 60), ownerUid: u.uid, ownerEmail: u.email || '', miembros: [u.uid],
+      integrantes: {[u.uid]: {nombre: u.displayName || '', email: u.email || ''}},
+      codigoActual: cod, limiteIntegrantes: LIMITE_INTEGRANTES,
+      demoHasta: TS.fromMillis(Date.now() + DIAS_DEMO * 86400000), creado: FV.serverTimestamp(), version: 1
+    });
+    paso = 'invitación';
+    await db.collection('invitaciones').doc(cod).set({hogarId: hid, ownerUid: u.uid, creado: FV.serverTimestamp()});
+    paso = 'usuario';
+    await db.collection('usuarios').doc(u.uid).set({hogarId: hid}, {merge: true});
+  } catch (e) { return errPant('No se pudo crear el hogar, paso ' + paso + ' (' + (e.code || e.message) + ')'); }
   S.userDoc = {hogarId: hid}; cortarListeners(); backupHecho = false; await escucharHogar(hid); render();
 }
 async function unirseHogar(){
