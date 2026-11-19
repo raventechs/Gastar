@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
   GastAr — gastos del hogar, compartidos y con avisos
-  Versión: 1.6.0
+  Versión: 1.7.0
   Fecha: 2026-11-18
   Changelog:
+    1.7.0 — Se puede mover un solo vencimiento a otra fecha (ej: de noviembre a diciembre): desaparece de Inicio y de los totales del mes y reaparece cuando faltan 31 días o menos. El resto de los meses no cambia.
     1.6.0 — Vencimientos con almanaque: se elige la fecha del primer vencimiento (este mes, el otro o uno pasado) y se repite ese día cada mes. Vale para gastos mensuales y cuotas de deudas.
     1.5.0 — Deudas: la cuota aparece en Inicio y suma a los totales del mes; interés mensual; fecha objetivo (calcula la cuota); deuda total congelada (sin cuota ni interés); avisos push de cuotas.
     1.4.0 — Inicio vuelve a mostrar los 8 más cercanos o vencidos. Nueva solapa Deudas: monto, plan de pagos (cuota, cantidad, día), abonos y saldo. Reglas v1.0.4.
@@ -198,7 +199,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10p
 <script src="demo.js"></script>
 <script>
 /* ═══════════════ CONFIG (se completa una sola vez) ═══════════════ */
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBlftKE_pqK6afzv1pe8PS58sYlb2Z93Uk',
   authDomain: 'charlar-e5408.firebaseapp.com',
@@ -259,6 +260,7 @@ const Core = {
     return ym + '-' + pad(Math.min(Number(g.dia) || 1, Core.dim(y, m)));
   },
   sumarDias(f, n){ const [y, m, d] = f.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + n)); return t.getUTCFullYear() + '-' + pad(t.getUTCMonth() + 1) + '-' + pad(t.getUTCDate()); },
+  fechaEf(g, ym){ return (g.mover && g.mover[ym]) || Core.fechaDe(g, ym); },
   clave(g, ym){ return g.tipo === 'unico' ? g.id + '_u' : g.id + '_' + ym; },
   /* Ocurrencias de gastos para una lista de meses. */
   ocurrencias(gastos, pagos, meses){
@@ -270,8 +272,12 @@ const Core = {
         if (meses.includes(ym)) out.push({g, ym, fecha: g.fecha, key: Core.clave(g, ym), pago: pagos.get(Core.clave(g, ym)) || null});
       } else {
         for (const ym of meses) {
+          if (g.mover && g.mover[ym]) continue;
           const f = Core.fechaDe(g, ym);
           if (f) out.push({g, ym, fecha: f, key: Core.clave(g, ym), pago: pagos.get(Core.clave(g, ym)) || null});
+        }
+        if (g.mover) for (const [orig, nf] of Object.entries(g.mover)) {
+          if (meses.includes(String(nf).slice(0, 7))) out.push({g, ym: orig, fecha: nf, key: Core.clave(g, orig), pago: pagos.get(Core.clave(g, orig)) || null});
         }
       }
     }
@@ -361,6 +367,12 @@ function hoja(html, opts){
   v.addEventListener('mousedown', e => { if (e.target === v && !(opts && opts.fija)) v.remove(); });
   document.body.appendChild(v);
   return v;
+}
+function elegir(texto, a, b){
+  return new Promise(res => {
+    const v = hoja('<h3>' + esc(texto) + '</h3><div class="acc"><button class="btn" data-r="a">' + esc(a) + '</button><button class="btn" data-r="b">' + esc(b) + '</button></div><div class="acc"><button class="btn sec" data-r="0">Cancelar</button></div>', {fija: true});
+    v.addEventListener('click', e => { const x = e.target.closest('[data-r]'); if (x) { v.remove(); res(x.dataset.r === '0' ? null : x.dataset.r); } });
+  });
 }
 function preguntar(texto, ok, peligro){
   return new Promise(res => {
@@ -564,7 +576,7 @@ function vInicio(){
 function cardVenc(o, i, hoy){
   const diff = Core.diffDays(o.fecha, hoy), c = catDe(o.g.categoria);
   return '<div class="venc ' + Core.colorDias(diff) + '"><div class="ico">' + c.e + '</div>' +
-    '<div class="main" data-a="' + (o.deuda ? 'editdeuda' : 'editar') + '" data-g="' + esc(o.g.id) + '"><b>' + esc(o.g.nombre) + (o.deuda ? ' · cuota' : '') + '</b><small>' + Core.cuando(diff) + ' · ' + fechaCorta(o.fecha) + '</small></div>' +
+    '<div class="main" data-a="' + (o.deuda ? 'editdeuda' : 'editar') + '" data-g="' + esc(o.g.id) + '" data-m="' + o.ym + '"><b>' + esc(o.g.nombre) + (o.deuda ? ' · cuota' : '') + '</b><small>' + Core.cuando(diff) + ' · ' + fechaCorta(o.fecha) + '</small></div>' +
     '<div class="monto">' + money(o.g.monto, o.g.moneda) + '</div>' +
     '<button class="btn" data-a="' + (o.deuda ? 'pagarcuota' : 'pagar') + '" data-k="' + esc(o.key) + '" data-g="' + esc(o.g.id) + '" data-m="' + o.ym + '">Pagar</button></div>';
 }
@@ -603,7 +615,7 @@ function filaGasto(o, hoy){
   const sub = o.pago ? 'Pagado ' + fechaCorta(o.pago.fecha || o.fecha) + (o.pago.porNombre ? ' · ' + esc(o.pago.porNombre) : '')
     : '<span class="' + (venc ? 'v' : '') + '">' + Core.cuando(diff) + ' · ' + fechaCorta(o.fecha) + '</span>';
   return '<div class="row ' + (o.pago ? 'pagado' : '') + '"><button class="chk ' + (o.pago ? 'ok' : venc ? 'venc-x' : '') + '" data-a="' + (o.deuda ? (o.pago ? 'despagarcuota' : 'pagarcuota') : (o.pago ? 'despagar' : 'pagar')) + '" data-k="' + esc(o.key) + '" data-g="' + esc(g.id) + '" data-m="' + o.ym + '" aria-label="' + (o.pago ? 'Deshacer pago' : 'Marcar pagado') + '">' + (o.pago ? '✓' : '') + '</button>' +
-    '<div class="main" data-a="' + (o.deuda ? 'editdeuda' : 'editar') + '" data-g="' + esc(g.id) + '"><b>' + esc(g.nombre) + (o.deuda ? ' · cuota' : '') + '</b><small>' + sub + (g.tipo === 'unico' ? ' · único' : '') + (impDe(g.importancia) ? ' · ' + impDe(g.importancia).e + ' ' + esc(impDe(g.importancia).c) : '') + '</small></div>' +
+    '<div class="main" data-a="' + (o.deuda ? 'editdeuda' : 'editar') + '" data-g="' + esc(g.id) + '" data-m="' + o.ym + '"><b>' + esc(g.nombre) + (o.deuda ? ' · cuota' : '') + '</b><small>' + sub + (g.tipo === 'unico' ? ' · único' : '') + (impDe(g.importancia) ? ' · ' + impDe(g.importancia).e + ' ' + esc(impDe(g.importancia).c) : '') + '</small></div>' +
     '<div class="monto">' + money(o.pago ? o.pago.monto : g.monto, g.moneda) + '</div></div>';
 }
 
@@ -662,9 +674,10 @@ function pantBloqueo(){
 
 /* ───────── Formulario de gasto ───────── */
 let formG = null;
-function abrirGasto(id){
+function abrirGasto(id, ym){
   const g = id ? S.gastos.find(x => x.id === id) : null;
-  formG = {tipo: g ? g.tipo : 'fijo', moneda: g ? (g.moneda || 'ARS') : 'ARS', imp: g && impDe(g.importancia) ? g.importancia : ''};
+  const occ = ym || Core.ymNow(), fEf = g && g.tipo === 'fijo' ? (Core.fechaEf(g, occ) || fechaCuota({dia: g.dia}, occ)) : '';
+  formG = {occ, fEf, tipo: g ? g.tipo : 'fijo', moneda: g ? (g.moneda || 'ARS') : 'ARS', imp: g && impDe(g.importancia) ? g.importancia : ''};
   const hoyD = new Date().getDate();
   const v = hoja(
     '<h3>' + (g ? 'Editar gasto' : 'Nuevo gasto') + '</h3>' +
@@ -674,7 +687,7 @@ function abrirGasto(id){
     '<div class="grid2"><div><label class="f">Monto</label><input class="in" id="gMonto" inputmode="decimal" placeholder="Ej: 85000" value="' + (g ? esc(g.monto) : '') + '"></div>' +
     '<div><label class="f">Moneda</label><div class="seg" id="gMon"><button data-v="ARS" class="' + (formG.moneda === 'ARS' ? 'on' : '') + '">$ Pesos</button><button data-v="USD" class="' + (formG.moneda === 'USD' ? 'on' : '') + '">US$</button></div></div></div>' +
     '<label class="f">¿Cada cuánto?</label><div class="seg" id="gTipo"><button data-v="fijo" class="' + (formG.tipo === 'fijo' ? 'on' : '') + '">Todos los meses</button><button data-v="unico" class="' + (formG.tipo === 'unico' ? 'on' : '') + '">Una sola vez</button></div>' +
-    '<div id="bFijo"><label class="f">' + (g ? 'Fecha de vencimiento (se usa el día; se repite todos los meses)' : 'Primer vencimiento (después se repite todos los meses ese día)') + '</label><input class="in" type="date" id="gPrimera" value="' + esc(g && g.dia ? fechaCuota({dia: g.dia}, Core.ymNow()) : Core.hoy()) + '"></div>' +
+    '<div id="bFijo"><label class="f">' + (g ? 'Vencimiento de ' + esc(nombreMes(occ)) + ' (cambiá la fecha para moverlo)' : 'Primer vencimiento (después se repite todos los meses ese día)') + '</label><input class="in" type="date" id="gPrimera" value="' + esc(g && g.dia ? fEf : Core.hoy()) + '"></div>' +
     '<div id="bUnico"><label class="f">Fecha de vencimiento</label><input class="in" type="date" id="gFecha" value="' + esc(g && g.fecha ? g.fecha : Core.hoy()) + '"></div>' +
     '<div id="bSaldo"><label class="f">Saldo total de la deuda (opcional)</label><input class="in" id="gSaldo" inputmode="decimal" value="' + (g && g.saldo ? esc(g.saldo) : '') + '"></div>' +
     '<label class="f">Nota (opcional)</label><input class="in" id="gNota" maxlength="120" value="' + esc(g ? g.nota || '' : '') + '">' +
@@ -706,7 +719,22 @@ async function guardarGasto(v, g){
   const borrar = [];
   if (formG.tipo === 'fijo') {
     const fp = $('#gPrimera', v).value; if (!fp) return err('Elegí la fecha de vencimiento en el almanaque.');
-    doc.dia = parseInt(fp.slice(8, 10), 10); borrar.push('fecha');
+    borrar.push('fecha');
+    if (!g) doc.dia = parseInt(fp.slice(8, 10), 10);
+    else {
+      doc.dia = g.dia;
+      const mover = Object.assign({}, g.mover || {}), occ = formG.occ, base = Core.fechaDe(g, occ);
+      if (fp !== formG.fEf) {
+        if (fp === base) delete mover[occ];
+        else if (fp.slice(0, 7) !== occ) mover[occ] = fp;
+        else {
+          const r = await elegir('¿Cambiar el vencimiento solo de ' + nombreMes(occ) + ' o de todos los meses?', 'Solo este mes', 'Todos los meses');
+          if (!r) return;
+          if (r === 'b') { doc.dia = parseInt(fp.slice(8, 10), 10); delete mover[occ]; } else mover[occ] = fp;
+        }
+      }
+      doc.mover = mover;
+    }
   } else {
     const f = $('#gFecha', v).value; if (!f) return err('Elegí la fecha.');
     doc.fecha = f; borrar.push('dia');
@@ -933,7 +961,7 @@ async function deshacerCuota(id, ym){
 /* ───────── Pagos ───────── */
 function abrirPago(gid, key, ym){
   const g = S.gastos.find(x => x.id === gid); if (!g) return;
-  const fecha = Core.fechaDe(g, ym) || g.fecha;
+  const fecha = Core.fechaEf(g, ym) || g.fecha;
   const v = hoja('<h3>Pagar “' + esc(g.nombre) + '”</h3><div class="mini">Vence ' + fechaCorta(fecha) + '. Confirmá o corregí el monto real.</div>' +
     '<label class="f">Monto pagado (' + (g.moneda === 'USD' ? 'US$' : '$') + ')</label><input class="in" id="pMonto" inputmode="decimal" value="' + esc(g.monto) + '">' +
     '<div id="pErr" class="err oculto"></div><div class="acc"><button class="btn sec" data-r="x">Cancelar</button><button class="btn" data-r="ok">Confirmar pago</button></div>');
@@ -1098,7 +1126,7 @@ document.addEventListener('click', async e => {
   else if (a === 'salir') { if (await preguntar('¿Cerrar sesión?', 'Cerrar sesión')) auth.signOut(); }
   else if (a === 'tema') cambiarTema();
   else if (a === 'nuevo') abrirGasto(null);
-  else if (a === 'editar') abrirGasto(b.dataset.g);
+  else if (a === 'editar') abrirGasto(b.dataset.g, b.dataset.m);
   else if (a === 'pagar') abrirPago(b.dataset.g, b.dataset.k, b.dataset.m);
   else if (a === 'despagar') deshacerPago(b.dataset.k);
   else if (a === 'historial') abrirHistorial();

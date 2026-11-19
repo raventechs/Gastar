@@ -55,7 +55,9 @@ function calcularAvisos(gastos, pagadas /* Set de claves */, enviados /* Set de 
   const out = [];
   const tipoDe = d => d === 3 ? 'd3' : d === 1 ? 'd1' : d === 0 ? 'd0' : d === -1 ? 'v1' : null;
   for (const g of gastos) {
-    const ocs = g.tipo === 'unico' ? (g.fecha ? [[g.fecha.slice(0, 7), g.fecha]] : []) : meses.map(ym => [ym, fechaDe(g, ym)]).filter(x => x[1]);
+    const mv = g.mover || {};
+    const ocs = g.tipo === 'unico' ? (g.fecha ? [[g.fecha.slice(0, 7), g.fecha]] : [])
+      : meses.filter(ym => !mv[ym]).map(ym => [ym, fechaDe(g, ym)]).filter(x => x[1]).concat(Object.keys(mv).map(o => [o, mv[o]]));
     for (const [ym, fecha] of ocs) {
       const key = clave(g, ym);
       if (pagadas.has(key)) continue;
