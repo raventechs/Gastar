@@ -1,4 +1,4 @@
-// GastAr — reglas de Firestore (v1.0.0 · 2026-11-18)
+// GastAr — reglas de Firestore (v1.0.1 · 2026-11-18)
 // Pegar COMPLETO en Firebase > Firestore Database > Reglas > Publicar.
 // Todo cerrado por defecto. Cada hogar solo ve lo suyo. El cliente no puede cambiar demoHasta ni limiteIntegrantes.
 // El administrador se reconoce por un documento en la colección "admins" cuyo ID es su UID (se crea a mano en la consola).
@@ -29,8 +29,12 @@ service cloud.firestore {
 
     match /usuarios/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow create, update: if signedIn() && request.auth.uid == uid
+      allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['email', 'nombre', 'ult', 'hogarId', 'fcmTokens'])
+        && (!('fcmTokens' in request.resource.data) || request.resource.data.fcmTokens.size() <= 10);
+      // Al actualizar solo se mira lo que cambia: si el documento ya tenía otros campos (de otra app), no molestan.
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email', 'nombre', 'ult', 'hogarId', 'fcmTokens'])
         && (!('fcmTokens' in request.resource.data) || request.resource.data.fcmTokens.size() <= 10);
     }
 
