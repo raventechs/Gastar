@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
   GastAr — gastos del hogar, compartidos y con avisos
-  Versión: 1.2.0
+  Versión: 1.2.1
   Fecha: 2026-11-18
   Changelog:
+    1.2.1 — El menú admin oculto (5 toques al logo) reconoce al administrador por su mail (rgaraventa@gmail.com), sin crear documentos a mano.
     1.2.0 — Plan personal (1 persona) y Plus grupo familiar (hasta 5), activables desde el menú admin oculto; ID de cuenta visible en Ajustes para dar de alta al administrador.
     1.1.0 — Importancia obligatoria al cargar un gasto (Fijo/esencial, Opcional, Innecesario), etiqueta en cada gasto y resumen por importancia en Inicio y Gastos.
     1.0.0 — Primera versión: hogar compartido por código, vencimientos fijos mensuales y únicos,
@@ -192,7 +193,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10p
 <script src="demo.js"></script>
 <script>
 /* ═══════════════ CONFIG (se completa una sola vez) ═══════════════ */
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBlftKE_pqK6afzv1pe8PS58sYlb2Z93Uk',
   authDomain: 'charlar-e5408.firebaseapp.com',
@@ -204,6 +205,7 @@ const FIREBASE_CONFIG = {
 const VAPID_KEY = 'PEGAR_CLAVE_VAPID_PUBLICA';      // Firebase > Cloud Messaging > Certificados push web
 const WA_VENTAS = '5490000000000';                   // WhatsApp de RavenTechs para activar cuentas (sin + ni espacios)
 const DIAS_DEMO = 14;
+const ADMIN_EMAIL = 'rgaraventa@gmail.com';   // administrador de todas las apps RavenTechs
 const LIMITE_INTEGRANTES = 1;   // plan personal
 const LIMITE_PLUS = 5;          // Plus: grupo familiar
 /* ═════════════════════════════════════════════════════════════════ */
@@ -406,7 +408,8 @@ auth.onAuthStateChanged(async u => {
   S.tab = 'inicio'; S.mes = Core.ymNow(); S.abiertasInit = null; S.abiertas = new Set();
   if (!u) { finCarga(); return render(); }
   try {
-    try { const a = await db.collection('admins').doc(u.uid).get(); S.admin = !!a.exists; } catch (e) { S.admin = false; }
+    S.admin = String(u.email || '').toLowerCase() === ADMIN_EMAIL;
+    if (!S.admin) { try { const a = await db.collection('admins').doc(u.uid).get(); S.admin = !!a.exists; } catch (e) { S.admin = false; } }
     const ref = db.collection('usuarios').doc(u.uid);
     const snap = await ref.get();
     S.userDoc = snap.exists ? snap.data() : null;
@@ -614,7 +617,7 @@ function vAjustes(){
        '<button class="btn full" data-a="avisos">Activar avisos en este celular</button>') + '</div>' +
     '<h2>Mis datos</h2><div class="card"><div class="acc" style="margin-top:0"><button class="btn sec" data-a="bk-bajar">Descargar copia</button><button class="btn sec" data-a="bk-subir">Restaurar copia</button></div><input type="file" id="bkFile" accept=".json,application/json" class="oculto"><div class="mini" style="margin-top:8px">Además se guarda una copia automática en este celular cada día (últimos 7 días).</div></div>' +
     '<h2>Ayuda</h2><div class="card"><div class="acc" style="margin-top:0"><button class="btn sec" data-a="tour">Recorrido guiado</button><button class="btn sec" data-a="ayuda">Instructivo</button></div></div>' +
-    '<h2>Cuenta</h2><div class="card"><div class="kv"><span>Ingresaste como</span><span>' + esc(u.email || '') + '</span></div><div class="kv"><span>ID de cuenta</span><button class="btn sec chico" data-a="copiar" data-l="' + esc(u.uid) + '">Copiar</button></div><div class="acc"><button class="btn sec" data-a="tema">Cambiar tema</button><button class="btn sec" data-a="salir">Cerrar sesión</button></div>' +
+    '<h2>Cuenta</h2><div class="card"><div class="kv"><span>Ingresaste como</span><span>' + esc(u.email || '') + '</span></div><div class="acc"><button class="btn sec" data-a="tema">Cambiar tema</button><button class="btn sec" data-a="salir">Cerrar sesión</button></div>' +
     (!esDueno ? '<div style="margin-top:10px"><button class="btn peli chico" data-a="irse">Salir de este hogar</button></div>' : '') + '</div>' +
     '<div class="pie">GastAr v' + VERSION + ' · RavenTechs</div>';
 }

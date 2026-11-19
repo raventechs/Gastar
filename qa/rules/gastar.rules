@@ -1,13 +1,18 @@
-// GastAr — reglas de Firestore (v1.0.2 · 2026-11-18)
+// GastAr — reglas de Firestore (v1.0.3 · 2026-11-18)
 // Pegar COMPLETO en Firebase > Firestore Database > Reglas > Publicar.
 // Todo cerrado por defecto. Cada hogar solo ve lo suyo. El cliente no puede cambiar demoHasta ni limiteIntegrantes (1 = personal; el administrador lo pasa a 5 con el Plus grupo familiar).
-// El administrador se reconoce por un documento en la colección "admins" cuyo ID es su UID (se crea a mano en la consola).
+// El administrador se reconoce por su mail (rgaraventa@gmail.com); no hace falta crear nada a mano.
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
-    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    // Administrador: el mail de Ruben (verificado por Google) o, como respaldo, un documento admins/{uid}.
+    function isAdmin() {
+      return signedIn() && (
+        (request.auth.token.email == 'rgaraventa@gmail.com' && request.auth.token.email_verified == true)
+        || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
     function hog(hid) { return get(/databases/$(database)/documents/hogares/$(hid)).data; }
     function esMiembro(hid) { return signedIn() && request.auth.uid in hog(hid).miembros; }
     // Prueba vigente o cliente (demoHasta null/ausente). Con la prueba vencida no se escribe, pero los datos se conservan.

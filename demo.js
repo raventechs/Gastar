@@ -82,7 +82,7 @@
     if (g[6]) store.set('hogares/hdemo/pagos/' + id + '_' + cur, {gastoId: id, nombreGasto: g[0], mes: cur, fecha: cur + '-' + String(Math.max(1, f.getDate())).padStart(2, '0'), monto: g[2], moneda: g[3], porUid: 'demo', porNombre: 'Ruben', ts: Ts.now()});
   });
   /* Login simulado */
-  const user = {uid: 'demo', email: 'demo@gastar.app', displayName: 'Ruben (demo)'};
+  const user = {uid: 'demo', email: 'rgaraventa@gmail.com', displayName: 'Ruben (demo)'};
   let cu = null; const ls = new Set();
   const fire = () => ls.forEach(f => setTimeout(() => f(cu), 0));
   const authObj = {get currentUser(){ return cu; },
