@@ -1,5 +1,5 @@
 /*
-  GastAr — Función de avisos de vencimientos (Netlify) v1.0.0 · 2026-11-18
+  GastAr — Función de avisos de vencimientos (Netlify) v1.1.0 · 2026-11-19 (incluye cuotas de deudas)
   Se dispara desde cron-job.org (una vez por día a la mañana, o cada hora: no duplica avisos).
   URL: https://<tu-sitio>.netlify.app/.netlify/functions/avisos?key=<CRON_KEY>
   Variables de entorno en Netlify:
@@ -30,6 +30,21 @@ function fechaDe(g, ym) {
   if (g.hastaMes && ym > g.hastaMes) return null;
   const [y, m] = ym.split('-').map(Number);
   return ym + '-' + pad(Math.min(Number(g.dia) || 1, dim(y, m)));
+}
+/* Cuotas de deudas como si fueran gastos mensuales: devuelve {gastos, pagadas}. */
+function cuotasDeDeudas(deudas) {
+  const gastos = [], pagadas = new Set();
+  for (const d of deudas) {
+    if (d.modo === 'congelada' || !(Number(d.cuotaMonto) > 0) || !(Number(d.dia) > 0)) continue;
+    const ab = d.abonos || [];
+    const pagado = ab.reduce((a, x) => a + (Number(x.monto) || 0), 0);
+    if (pagado >= (Number(d.total) || 0)) continue;
+    if ((Number(d.cuotas) || 0) > 0 && ab.filter(a => a.mes).length >= Number(d.cuotas)) continue;
+    const id = 'd-' + d.id;
+    gastos.push({ id, nombre: 'Cuota ' + d.nombre, monto: d.cuotaMonto, moneda: d.moneda || 'ARS', tipo: 'fijo', dia: d.dia, desdeMes: d.desde || '' });
+    ab.filter(a => a.mes).forEach(a => pagadas.add(id + '_' + a.mes));
+  }
+  return { gastos, pagadas };
 }
 const clave = (g, ym) => g.tipo === 'unico' ? g.id + '_u' : g.id + '_' + ym;
 
@@ -88,9 +103,11 @@ exports.handler = async (event) => {
       const h = hd.data();
       if (h.demoHasta && h.demoHasta.toMillis() < Date.now()) continue; // prueba vencida: no se avisa
       resumen.hogares++;
-      const [gs, ps, avs] = await Promise.all([hd.ref.collection('gastos').get(), hd.ref.collection('pagos').get(), hd.ref.collection('avisos').get()]);
-      const gastos = gs.docs.map(d => Object.assign({ id: d.id }, d.data()));
-      const pendientes = calcularAvisos(gastos, new Set(ps.docs.map(d => d.id)), new Set(avs.docs.map(d => d.id)), hoy);
+      const [gs, ps, avs, ds] = await Promise.all([hd.ref.collection('gastos').get(), hd.ref.collection('pagos').get(), hd.ref.collection('avisos').get(), hd.ref.collection('deudas').get()]);
+      const cu = cuotasDeDeudas(ds.docs.map(d => Object.assign({ id: d.id }, d.data())));
+      const gastos = gs.docs.map(d => Object.assign({ id: d.id }, d.data())).concat(cu.gastos);
+      const pagadas = new Set(ps.docs.map(d => d.id)); cu.pagadas.forEach(k => pagadas.add(k));
+      const pendientes = calcularAvisos(gastos, pagadas, new Set(avs.docs.map(d => d.id)), hoy);
       if (!pendientes.length) continue;
 
       // Tokens de todos los integrantes del hogar
@@ -130,4 +147,4 @@ exports.handler = async (event) => {
   }
 };
 
-exports._test = { calcularAvisos, armarMensaje, fechaDe, diffDays, partesArgentina };
+exports._test = { cuotasDeDeudas, calcularAvisos, armarMensaje, fechaDe, diffDays, partesArgentina };
