@@ -1,4 +1,4 @@
-// GastAr — reglas de Firestore (v1.0.3 · 2026-11-18)
+// GastAr — reglas de Firestore (v1.0.4 · 2026-11-19)
 // Pegar COMPLETO en Firebase > Firestore Database > Reglas > Publicar.
 // Todo cerrado por defecto. Cada hogar solo ve lo suyo. El cliente no puede cambiar demoHasta ni limiteIntegrantes (1 = personal; el administrador lo pasa a 5 con el Plus grupo familiar).
 // El administrador se reconoce por su mail (rgaraventa@gmail.com); no hace falta crear nada a mano.
@@ -91,6 +91,16 @@ service cloud.firestore {
       match /gastos/{gid} {
         allow read: if isAdmin() || esMiembro(hid);
         allow create, update: if esMiembro(hid) && activo(hid) && validGasto();
+        allow delete: if esMiembro(hid) && activo(hid);
+      }
+
+      match /deudas/{did} {
+        allow read: if isAdmin() || esMiembro(hid);
+        allow create, update: if esMiembro(hid) && activo(hid)
+          && request.resource.data.nombre is string && request.resource.data.nombre.size() > 0 && request.resource.data.nombre.size() <= 80
+          && request.resource.data.total is number && request.resource.data.total >= 0
+          && request.resource.data.get('moneda', 'ARS') in ['ARS', 'USD']
+          && request.resource.data.get('abonos', []) is list && request.resource.data.get('abonos', []).size() <= 500;
         allow delete: if esMiembro(hid) && activo(hid);
       }
 

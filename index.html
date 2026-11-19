@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
   GastAr — gastos del hogar, compartidos y con avisos
-  Versión: 1.3.1
+  Versión: 1.4.0
   Fecha: 2026-11-18
   Changelog:
+    1.4.0 — Inicio vuelve a mostrar los 8 más cercanos o vencidos. Nueva solapa Deudas: monto, plan de pagos (cuota, cantidad, día), abonos y saldo. Reglas v1.0.4.
     1.3.1 — Colores por días que faltan: rojo (vencido o 1 día), naranja (2 a 5), amarillo (6 a 8), verde (9 o más).
     1.3.0 — Inicio muestra solo lo que vence en los próximos 31 días (más lo vencido); los gastos de una sola vez con fecha lejana sí se muestran. Historial de pagos (se conserva aunque se borre el gasto).
     1.2.1 — El menú admin oculto (5 toques al logo) reconoce al administrador por su mail (rgaraventa@gmail.com), sin crear documentos a mano.
@@ -130,7 +131,7 @@ h2{font-size:15px;margin:18px 2px 8px;color:var(--mut);text-transform:uppercase;
 
 /* Barra inferior */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
-nav.tabs .wrap{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+nav.tabs .wrap{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
 nav.tabs button{background:none;border:0;padding:9px 0 7px;color:var(--mut);font-size:12px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px}
 nav.tabs button span{font-size:22px;line-height:1}
 nav.tabs button.on{color:var(--brand)}
@@ -195,7 +196,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10p
 <script src="demo.js"></script>
 <script>
 /* ═══════════════ CONFIG (se completa una sola vez) ═══════════════ */
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBlftKE_pqK6afzv1pe8PS58sYlb2Z93Uk',
   authDomain: 'charlar-e5408.firebaseapp.com',
@@ -330,7 +331,7 @@ try { db.enablePersistence({synchronizeTabs: true}).catch(() => {}); } catch (e)
 const S = {
   user: null, admin: false, userDoc: null, hid: null, hogar: null, gastos: [], pagos: new Map(),
   tab: 'inicio', mes: Core.ymNow(), abiertas: new Set(), abiertasInit: null,
-  unsubs: [], cargado: {gastos: false, pagos: false}, instalar: null, errCount: 0
+  unsubs: [], cargado: {gastos: false, pagos: false, deudas: false}, instalar: null, errCount: 0
 };
 const esAdmin = () => !!(S.user && S.admin);
 const root = document.getElementById('root');
@@ -409,7 +410,7 @@ async function ingresarGoogle(){
 }
 auth.onAuthStateChanged(async u => {
   cortarListeners();
-  S.user = u; S.admin = false; S.userDoc = null; S.hid = null; S.hogar = null; S.gastos = []; S.pagos = new Map(); backupHecho = false;
+  S.user = u; S.admin = false; S.userDoc = null; S.hid = null; S.hogar = null; S.gastos = []; S.pagos = new Map(); S.deudas = []; backupHecho = false;
   S.tab = 'inicio'; S.mes = Core.ymNow(); S.abiertasInit = null; S.abiertas = new Set();
   if (!u) { finCarga(); return render(); }
   try {
@@ -424,7 +425,7 @@ auth.onAuthStateChanged(async u => {
   finCarga(); render();
 });
 function finCarga(){ const c = document.getElementById('carga'); if (c) { c.classList.add('fuera'); setTimeout(() => c.remove(), 500); } }
-function cortarListeners(){ S.unsubs.forEach(f => { try { f(); } catch (e) {} }); S.unsubs = []; S.cargado = {gastos: false, pagos: false}; }
+function cortarListeners(){ S.unsubs.forEach(f => { try { f(); } catch (e) {} }); S.unsubs = []; S.cargado = {gastos: false, pagos: false, deudas: false}; }
 
 async function escucharHogar(hid){
   S.hid = hid;
@@ -447,6 +448,9 @@ async function escucharHogar(hid){
   S.unsubs.push(href.collection('pagos').onSnapshot(q => {
     const m = new Map(); q.docs.forEach(d => m.set(d.id, Object.assign({id: d.id}, d.data()))); S.pagos = m; S.cargado.pagos = true; alCargar(); render();
   }, e => { console.error(e); logError('pagos: ' + e.message); }));
+  S.unsubs.push(href.collection('deudas').onSnapshot(q => {
+    S.deudas = q.docs.map(d => Object.assign({id: d.id}, d.data())); S.cargado.deudas = true; render();
+  }, e => { console.error(e); S.cargado.deudas = true; logError('deudas: ' + e.message); render(); }));
 }
 let backupHecho = false;
 function alCargar(){ if (S.cargado.gastos && S.cargado.pagos && !backupHecho) { backupHecho = true; backupDiario(); } }
@@ -509,10 +513,10 @@ function render(){
   const d = demoInfo();
   if (d.estado === 'vencida') return pantBloqueo();
   const y = window.scrollY;
-  root.innerHTML = cabecera() + '<main class="wrap">' + bannerDemo(d) + (S.tab === 'inicio' ? vInicio() : S.tab === 'gastos' ? vGastos() : vAjustes()) + '</main>' +
-    (S.tab !== 'ajustes' ? '<button class="fab" data-a="nuevo" aria-label="Agregar gasto">+</button>' : '') +
+  root.innerHTML = cabecera() + '<main class="wrap">' + bannerDemo(d) + (S.tab === 'inicio' ? vInicio() : S.tab === 'gastos' ? vGastos() : S.tab === 'deudas' ? vDeudas() : vAjustes()) + '</main>' +
+    (S.tab === 'deudas' ? '<button class="fab" data-a="nuevadeuda" aria-label="Agregar deuda">+</button>' : S.tab !== 'ajustes' ? '<button class="fab" data-a="nuevo" aria-label="Agregar gasto">+</button>' : '') +
     '<nav class="tabs"><div class="wrap">' +
-    ['inicio|🏠|Inicio', 'gastos|📋|Gastos', 'ajustes|⚙️|Ajustes'].map(t => { const [id, ic, n] = t.split('|'); return '<button data-tab="' + id + '" class="' + (S.tab === id ? 'on' : '') + '"><span>' + ic + '</span>' + n + '</button>'; }).join('') +
+    ['inicio|🏠|Inicio', 'gastos|📋|Gastos', 'deudas|💳|Deudas', 'ajustes|⚙️|Ajustes'].map(t => { const [id, ic, n] = t.split('|'); return '<button data-tab="' + id + '" class="' + (S.tab === id ? 'on' : '') + '"><span>' + ic + '</span>' + n + '</button>'; }).join('') +
     '</div></nav>';
   window.scrollTo(0, y);
 }
@@ -542,14 +546,14 @@ function vInicio(){
   h += avisoPush();
   h += '<h2>Próximos vencimientos</h2>';
   if (!S.cargado.gastos) return h + '<div class="vacio">Cargando…</div>';
-  const pend = Core.pendientes(S.gastos, S.pagos, hoy);
+  const todas = Core.pendientes(S.gastos, S.pagos, hoy), pend = todas.slice(0, 8);
   if (!S.gastos.length) {
     h += '<div class="card vacio">Todavía no cargaste gastos.<br>Tocá el <b>+</b> para agregar el primero: alquiler, luz, tarjeta…<br><br><button class="btn sec" data-a="tour">Ver cómo funciona</button></div>';
   } else if (!pend.length) {
     h += '<div class="card vacio">🎉 No tenés vencimientos pendientes.</div>';
   } else {
     h += pend.map((o, i) => cardVenc(o, i, hoy)).join('');
-    h += '<div class="mini" style="text-align:center">Próximos 31 días · 🔴 vencido o 1 día · 🟠 2 a 5 · 🟡 6 a 8 · 🟢 9 o más</div>';
+    h += '<div class="mini" style="text-align:center">' + (todas.length > 8 ? 'Mostrando los 8 más cercanos de ' + todas.length + ' (el resto está en Gastos) · ' : '') + '🔴 vencido o 1 día · 🟠 2 a 5 · 🟡 6 a 8 · 🟢 9 o más</div>';
   }
   h += '<div style="margin-top:14px"><button class="btn sec full" data-a="historial">🧾 Historial de pagos</button></div>';
   return h;
@@ -730,6 +734,103 @@ async function eliminarGasto(id){
   } catch (e) { toast('No se pudo eliminar (' + (e.code || e.message) + ')'); }
 }
 
+/* ───────── Deudas y plan de pagos ───────── */
+const deudaPagado = d => (d.abonos || []).reduce((a, x) => a + (Number(x.monto) || 0), 0);
+const deudaSaldo = d => Math.max(0, (Number(d.total) || 0) - deudaPagado(d));
+function vDeudas(){
+  if (!S.cargado.deudas) return '<h2>Deudas</h2><div class="vacio">Cargando…</div>';
+  const act = S.deudas.filter(d => deudaSaldo(d) > 0).sort((a, b) => deudaSaldo(b) - deudaSaldo(a));
+  const lis = S.deudas.filter(d => deudaSaldo(d) <= 0);
+  const sum = {ARS: {deb: 0, cuota: 0}, USD: {deb: 0, cuota: 0}};
+  act.forEach(d => { const m = d.moneda === 'USD' ? 'USD' : 'ARS'; sum[m].deb += deudaSaldo(d); sum[m].cuota += Math.min(Number(d.cuotaMonto) || 0, deudaSaldo(d)); });
+  let h = '<div class="card resumen"><div class="mes">Lo que debés en total</div><div class="grande">' + money(sum.ARS.deb, 'ARS') + '</div>' +
+    '<div class="mut">Cuotas por mes: ' + money(sum.ARS.cuota, 'ARS') + '</div>' +
+    (sum.USD.deb ? '<div class="usd">En dólares: debés ' + money(sum.USD.deb, 'USD') + '</div>' : '') + '</div>';
+  h += '<h2>Mis deudas</h2>';
+  if (!S.deudas.length) return h + '<div class="card vacio">Todavía no cargaste deudas.<br>Tocá el <b>+</b> para agregar una: tarjeta, préstamo, un amigo…</div>';
+  h += act.map(tarjetaDeuda).join('');
+  if (lis.length) h += '<h2>Saldadas ✅</h2>' + lis.map(tarjetaDeuda).join('');
+  return h;
+}
+function tarjetaDeuda(d){
+  const tot = Number(d.total) || 0, pag = deudaPagado(d), sal = deudaSaldo(d), pct = tot > 0 ? Math.min(100, Math.round(pag * 100 / tot)) : 0;
+  const cm = Number(d.cuotaMonto) || 0, n = (d.abonos || []).length, ncuo = Number(d.cuotas) || 0;
+  let plan = '';
+  if (sal <= 0) plan = 'Deuda saldada 🎉';
+  else if (cm > 0) {
+    const rest = ncuo > 0 ? Math.max(0, ncuo - n) : Math.ceil(sal / cm);
+    const fin = rest > 0 ? nombreMes(Core.addMonths(Core.ymNow(), rest - 1)) : '';
+    plan = 'Cuota ' + money(cm, d.moneda) + (d.dia ? ' · vence el ' + d.dia : '') + (ncuo > 0 ? ' · cuota ' + Math.min(n + 1, ncuo) + ' de ' + ncuo : '') + (rest ? ' · faltan ' + rest + ' · termina ~' + fin : '');
+  } else plan = 'Sin cuota fija: abonás cuando podés';
+  return '<div class="card" style="margin-bottom:10px"><div class="kv"><span><b>' + esc(d.nombre) + '</b>' + (d.acreedor ? '<br><span class="mini">' + esc(d.acreedor) + '</span>' : '') + '</span><b>' + money(sal, d.moneda) + '</b></div>' +
+    '<div class="barra"><i style="width:' + pct + '%"></i></div><div class="mini">Pagado ' + money(pag, d.moneda) + ' de ' + money(tot, d.moneda) + ' · ' + pct + '%</div>' +
+    '<div class="mini" style="margin-top:6px">' + esc(plan) + '</div>' +
+    '<div class="acc">' + (sal > 0 ? '<button class="btn" data-a="abonar" data-d="' + esc(d.id) + '">' + (cm > 0 ? 'Pagar cuota' : 'Abonar') + '</button>' : '') + '<button class="btn sec" data-a="editdeuda" data-d="' + esc(d.id) + '">Ver / editar</button></div></div>';
+}
+function abrirDeuda(id){
+  const d = id ? S.deudas.find(x => x.id === id) : null; if (id && !d) return;
+  const f = {moneda: d ? (d.moneda || 'ARS') : 'ARS'};
+  const abonos = d ? (d.abonos || []).slice().sort((a, b) => (b.fecha || '') < (a.fecha || '') ? -1 : 1) : [];
+  const v = hoja('<h3>' + (d ? 'Deuda' : 'Nueva deuda') + '</h3>' +
+    '<label class="f">¿Qué deuda es?</label><input class="in" id="dNombre" maxlength="80" placeholder="Ej: Tarjeta Visa" value="' + esc(d ? d.nombre : '') + '">' +
+    '<label class="f">¿A quién se la debés? (opcional)</label><input class="in" id="dAcre" maxlength="80" placeholder="Ej: Banco Galicia" value="' + esc(d ? d.acreedor || '' : '') + '">' +
+    '<div class="grid2"><div><label class="f">Monto total de la deuda</label><input class="in" id="dTotal" inputmode="decimal" placeholder="Ej: 5000000" value="' + esc(d ? d.total : '') + '"></div>' +
+    '<div><label class="f">Moneda</label><div class="seg" id="dMon"><button data-v="ARS" class="' + (f.moneda === 'ARS' ? 'on' : '') + '">$ Pesos</button><button data-v="USD" class="' + (f.moneda === 'USD' ? 'on' : '') + '">US$</button></div></div></div>' +
+    '<div class="mini" style="margin-top:10px"><b>Plan de pagos</b> (todo opcional)</div>' +
+    '<div class="grid2"><div><label class="f">Cuota por mes</label><input class="in" id="dCuota" inputmode="decimal" placeholder="Ej: 250000" value="' + esc(d && d.cuotaMonto ? d.cuotaMonto : '') + '"></div>' +
+    '<div><label class="f">Cantidad de cuotas</label><input class="in" id="dCuotas" inputmode="numeric" placeholder="Ej: 12" value="' + esc(d && d.cuotas ? d.cuotas : '') + '"></div></div>' +
+    '<label class="f">Día del mes que vence la cuota</label><input class="in" id="dDia" inputmode="numeric" placeholder="Ej: 10" value="' + esc(d && d.dia ? d.dia : '') + '">' +
+    '<label class="f">Nota (opcional)</label><input class="in" id="dNota" maxlength="200" value="' + esc(d ? d.nota || '' : '') + '">' +
+    (abonos.length ? '<div class="mini" style="margin-top:12px"><b>Pagos registrados</b></div>' + abonos.map(a => '<div class="kv"><span>' + esc(fechaCorta(a.fecha || '0000-00-00')) + (a.por ? ' · ' + esc(a.por) : '') + '</span><span><b>' + money(a.monto, d.moneda) + '</b> <button class="btn sec chico" data-r="delab" data-i="' + esc(a.id) + '">✕</button></span></div>').join('') : '') +
+    '<div id="dErr" class="err oculto"></div><div class="acc"><button class="btn sec" data-r="x">Cancelar</button><button class="btn" data-r="ok">Guardar</button></div>' +
+    (d ? '<div style="margin-top:10px"><button class="btn peli chico" data-r="del">Eliminar deuda</button></div>' : ''));
+  const ref = () => db.collection('hogares').doc(S.hid).collection('deudas');
+  v.addEventListener('click', async e => {
+    const sg = e.target.closest('.seg button');
+    if (sg) { sg.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('on')); sg.classList.add('on'); f.moneda = sg.dataset.v; return; }
+    const b = e.target.closest('[data-r]'); if (!b) return;
+    const err = m => { const x = $('#dErr', v); x.textContent = m; x.classList.remove('oculto'); };
+    if (b.dataset.r === 'x') return v.remove();
+    if (b.dataset.r === 'del') { if (await preguntar('¿Eliminar “' + d.nombre + '” con todos sus pagos?', 'Eliminar', true)) { try { await ref().doc(d.id).delete(); v.remove(); toast('Deuda eliminada'); } catch (er) { toast('No se pudo (' + (er.code || er.message) + ')'); } } return; }
+    if (b.dataset.r === 'delab') {
+      if (!(await preguntar('¿Quitar este pago?', 'Quitar'))) return;
+      try { await ref().doc(d.id).update({abonos: (d.abonos || []).filter(a => a.id !== b.dataset.i)}); v.remove(); toast('Pago quitado'); } catch (er) { toast('No se pudo (' + (er.code || er.message) + ')'); }
+      return;
+    }
+    const nombre = $('#dNombre', v).value.trim(), total = Core.parseMonto($('#dTotal', v).value);
+    if (!nombre) return err('Poné un nombre.');
+    if (isNaN(total) || total < 0) return err('Escribí el monto total con números. Ej: 5000000');
+    const cm = $('#dCuota', v).value.trim() ? Core.parseMonto($('#dCuota', v).value) : 0;
+    if (isNaN(cm) || cm < 0) return err('La cuota tiene que ser un número.');
+    const cuotas = parseInt($('#dCuotas', v).value, 10) || 0, dia = parseInt($('#dDia', v).value, 10) || 0;
+    if (dia && !(dia >= 1 && dia <= 31)) return err('El día tiene que ser de 1 a 31.');
+    const doc = {nombre, acreedor: $('#dAcre', v).value.trim(), total, moneda: f.moneda, cuotaMonto: cm, cuotas, dia, nota: $('#dNota', v).value.trim()};
+    try {
+      if (d) await ref().doc(d.id).update(doc);
+      else await ref().add(Object.assign(doc, {abonos: [], creadoPor: S.user.uid, creado: FV.serverTimestamp()}));
+      v.remove(); toast(d ? 'Deuda actualizada' : 'Deuda agregada');
+    } catch (er) { err(er.code === 'permission-denied' ? 'No se pudo guardar: falta actualizar las reglas o terminó la prueba.' : 'No se pudo guardar (' + (er.code || er.message) + ')'); logError(er.message, er.stack); }
+  });
+}
+function abrirAbono(id){
+  const d = S.deudas.find(x => x.id === id); if (!d) return;
+  const sal = deudaSaldo(d), sug = Math.min(Number(d.cuotaMonto) || sal, sal);
+  const v = hoja('<h3>' + (d.cuotaMonto ? 'Pagar cuota de' : 'Abonar a') + ' “' + esc(d.nombre) + '”</h3><div class="mini">Hoy debés ' + money(sal, d.moneda) + '. Confirmá o corregí lo que pagaste.</div>' +
+    '<label class="f">Monto pagado (' + (d.moneda === 'USD' ? 'US$' : '$') + ')</label><input class="in" id="aMonto" inputmode="decimal" value="' + esc(sug) + '">' +
+    '<div id="aErr" class="err oculto"></div><div class="acc"><button class="btn sec" data-r="x">Cancelar</button><button class="btn" data-r="ok">Confirmar pago</button></div>');
+  v.addEventListener('click', async e => {
+    const b = e.target.closest('[data-r]'); if (!b) return;
+    if (b.dataset.r === 'x') return v.remove();
+    const m = Core.parseMonto($('#aMonto', v).value);
+    if (isNaN(m) || m <= 0) { const er = $('#aErr', v); er.textContent = 'Escribí el monto con números.'; er.classList.remove('oculto'); return; }
+    try {
+      const nuevo = (d.abonos || []).concat([{id: Date.now().toString(36), fecha: Core.hoy(), monto: m, por: (S.user.displayName || S.user.email || '').split(' ')[0]}]);
+      await db.collection('hogares').doc(S.hid).collection('deudas').doc(d.id).update({abonos: nuevo});
+      v.remove(); toast(m >= sal ? 'Deuda saldada 🎉' : 'Pago registrado ✓');
+    } catch (er) { toast('No se pudo registrar (' + (er.code || er.message) + ')'); logError(er.message, er.stack); }
+  });
+}
+
 /* ───────── Pagos ───────── */
 function abrirPago(gid, key, ym){
   const g = S.gastos.find(x => x.id === gid); if (!g) return;
@@ -797,7 +898,7 @@ try { if ('serviceWorker' in navigator && (location.protocol === 'https:' || loc
 /* ───────── Backup ───────── */
 const jsonReplacer = (k, v) => (v && typeof v === 'object' && typeof v.toMillis === 'function') ? {_ts: v.toMillis()} : v;
 const jsonReviver = (k, v) => (v && typeof v === 'object' && v._ts !== undefined && Object.keys(v).length === 1) ? TS.fromMillis(v._ts) : v;
-function datosBackup(){ return {app: 'gastar', version: VERSION, hogar: S.hid, nombre: S.hogar && S.hogar.nombre, fecha: new Date().toISOString(), gastos: S.gastos, pagos: Array.from(S.pagos.values())}; }
+function datosBackup(){ return {app: 'gastar', version: VERSION, hogar: S.hid, nombre: S.hogar && S.hogar.nombre, fecha: new Date().toISOString(), gastos: S.gastos, pagos: Array.from(S.pagos.values()), deudas: S.deudas}; }
 function backupDiario(){
   try {
     const key = 'gastar-bk-' + S.hid, hoy = Core.hoy();
@@ -816,10 +917,10 @@ function bajarBackup(){
 async function restaurarBackup(file){
   try {
     const o = JSON.parse(await file.text(), jsonReviver);
-    if (o.app !== 'gastar' || !Array.isArray(o.gastos)) return toast('Ese archivo no es una copia de GastAr');
-    if (!(await preguntar('Se van a cargar ' + o.gastos.length + ' gastos y ' + (o.pagos || []).length + ' pagos. No se borra nada de lo que ya tenés. ¿Seguir?', 'Restaurar'))) return;
+    if (o.app !== 'gastar' || (!Array.isArray(o.gastos) && !Array.isArray(o.deudas))) return toast('Ese archivo no es una copia de GastAr');
+    if (!(await preguntar('Se van a cargar ' + (o.gastos || []).length + ' gastos, ' + (o.pagos || []).length + ' pagos y ' + (o.deudas || []).length + ' deudas. No se borra nada de lo que ya tenés. ¿Seguir?', 'Restaurar'))) return;
     const ref = db.collection('hogares').doc(S.hid);
-    const items = o.gastos.map(g => ['gastos', g]).concat((o.pagos || []).map(p => ['pagos', p]));
+    const items = (o.gastos || []).map(g => ['gastos', g]).concat((o.pagos || []).map(p => ['pagos', p]), (o.deudas || []).map(d => ['deudas', d]));
     for (let i = 0; i < items.length; i += 400) {
       const b = db.batch();
       items.slice(i, i + 400).forEach(([col, d]) => { const id = d.id, resto = Object.assign({}, d); delete resto.id; b.set(ref.collection(col).doc(id), resto, {merge: true}); });
@@ -902,6 +1003,9 @@ document.addEventListener('click', async e => {
   else if (a === 'pagar') abrirPago(b.dataset.g, b.dataset.k, b.dataset.m);
   else if (a === 'despagar') deshacerPago(b.dataset.k);
   else if (a === 'historial') abrirHistorial();
+  else if (a === 'nuevadeuda') abrirDeuda(null);
+  else if (a === 'editdeuda') abrirDeuda(b.dataset.d);
+  else if (a === 'abonar') abrirAbono(b.dataset.d);
   else if (a === 'mes') { S.mes = Core.addMonths(S.mes, Number(b.dataset.n)); render(); }
   else if (a === 'cat') { const c = b.dataset.c; S.abiertas.has(c) ? S.abiertas.delete(c) : S.abiertas.add(c); b.parentElement.classList.toggle('abierta'); }
   else if (a === 'avisos') activarAvisos();

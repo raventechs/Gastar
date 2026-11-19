@@ -81,6 +81,8 @@
     store.set('hogares/hdemo/gastos/' + id, doc);
     if (g[6]) store.set('hogares/hdemo/pagos/' + id + '_' + cur, {gastoId: id, nombreGasto: g[0], mes: cur, fecha: cur + '-' + String(Math.max(1, f.getDate())).padStart(2, '0'), monto: g[2], moneda: g[3], porUid: 'demo', porNombre: 'Ruben', ts: Ts.now()});
   });
+  store.set('hogares/hdemo/deudas/d1', {nombre: 'Tarjeta Visa', acreedor: 'Banco', total: 5000000, moneda: 'ARS', cuotaMonto: 400000, cuotas: 14, dia: 10, nota: '', abonos: [{id: 'a1', fecha: cur + '-02', monto: 400000, por: 'Ruben'}], creado: Ts.now()});
+  store.set('hogares/hdemo/deudas/d2', {nombre: 'Préstamo amigo', acreedor: 'Marcos', total: 150000, moneda: 'ARS', cuotaMonto: 0, cuotas: 0, dia: 0, nota: '', abonos: [], creado: Ts.now()});
   /* Login simulado */
   const user = {uid: 'demo', email: 'rgaraventa@gmail.com', displayName: 'Ruben (demo)'};
   let cu = null; const ls = new Set();
