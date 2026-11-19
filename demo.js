@@ -76,6 +76,7 @@
     const id = 'g' + i, f = new Date(hoy.getTime() + g[4] * 86400000);
     const doc = {nombre: g[0], categoria: g[1], monto: g[2], moneda: g[3], tipo: 'fijo', dia: f.getDate(), nota: '', desdeMes: ym(f) === cur ? cur : prox, creado: Ts.now(), creadoPor: 'demo'};
     if (g[5]) doc.saldo = g[5];
+    doc.importancia = ['Netflix', 'Cuota colegio'].includes(g[0]) ? 'opcional' : (g[0] === 'Celular' ? 'innecesario' : 'esencial');
     store.set('hogares/hdemo/gastos/' + id, doc);
     if (g[6]) store.set('hogares/hdemo/pagos/' + id + '_' + cur, {gastoId: id, nombreGasto: g[0], mes: cur, fecha: cur + '-' + String(Math.max(1, f.getDate())).padStart(2, '0'), monto: g[2], moneda: g[3], porUid: 'demo', porNombre: 'Ruben', ts: Ts.now()});
   });

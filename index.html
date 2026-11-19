@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
   GastAr — gastos del hogar, compartidos y con avisos
-  Versión: 1.0.0
+  Versión: 1.1.0
   Fecha: 2026-11-18
   Changelog:
+    1.1.0 — Importancia obligatoria al cargar un gasto (Fijo/esencial, Opcional, Innecesario), etiqueta en cada gasto y resumen por importancia en Inicio y Gastos.
     1.0.0 — Primera versión: hogar compartido por código, vencimientos fijos mensuales y únicos,
             inicio con 8 próximos vencimientos (2 rojo, 2 naranja, 2 amarillo, 2 verde),
             lista por categoría desplegable, pesos y USD, avisos push, prueba de 14 días,
@@ -148,6 +149,8 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10p
 .in:focus{outline:2px solid var(--brand);border-color:var(--brand)}
 .seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .seg button{border:1.5px solid var(--line);background:var(--bg);border-radius:11px;padding:10px;font-weight:600}
+.seg.s3{grid-template-columns:repeat(3,minmax(0,1fr))}.seg.s3 button{padding:10px 4px;font-size:13px}
+.imp-r{display:flex;justify-content:space-between;gap:8px;padding:5px 0;font-size:15px}.imp-r b{white-space:nowrap}
 .seg button.on{border-color:var(--brand);background:var(--brand);color:#fff}
 [data-tema="oscuro"] .seg button.on{color:#062b27}
 .err{background:var(--redbg);color:var(--red);border-radius:10px;padding:9px 11px;font-size:13.5px;margin-top:10px;word-break:break-word}
@@ -188,7 +191,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10p
 <script src="demo.js"></script>
 <script>
 /* ═══════════════ CONFIG (se completa una sola vez) ═══════════════ */
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBlftKE_pqK6afzv1pe8PS58sYlb2Z93Uk',
   authDomain: 'charlar-e5408.firebaseapp.com',
@@ -212,6 +215,24 @@ const CATS = [
   {id:'familia', n:'Familia', e:'👨‍👩‍👧'}, {id:'seguros', n:'Seguros', e:'🛡️'}, {id:'suscripciones', n:'Suscripciones', e:'📱'},
   {id:'transporte', n:'Transporte', e:'🚗'}, {id:'deudas', n:'Deudas y tarjetas', e:'💳'}, {id:'otros', n:'Otros', e:'📦'}
 ];
+const IMPS = [
+  {id:'esencial', n:'Fijo / esencial', c:'Fijo', e:'🔒'}, {id:'opcional', n:'Opcional', c:'Opcional', e:'🟡'}, {id:'innecesario', n:'Innecesario', c:'Innecesario', e:'✂️'}
+];
+const impDe = id => IMPS.find(i => i.id === id) || null;
+function tarjetaImportancia(ocs){
+  const sum = {}; let hay = false;
+  ocs.forEach(o => {
+    if ((o.g.moneda || 'ARS') !== 'ARS') return;
+    const k = impDe(o.g.importancia) ? o.g.importancia : 'sin'; hay = true;
+    sum[k] = (sum[k] || 0) + (Number(o.pago ? o.pago.monto : o.g.monto) || 0);
+  });
+  if (!hay) return '';
+  const tot = Object.values(sum).reduce((a, b) => a + b, 0) || 1;
+  let h = '<div class="card" style="margin-bottom:12px"><div class="mini" style="margin-bottom:4px"><b>Por importancia (en pesos)</b></div>';
+  IMPS.forEach(i => { if (sum[i.id]) h += '<div class="imp-r"><span>' + i.e + ' ' + esc(i.n) + ' <span class="mini">· ' + Math.round(sum[i.id] * 100 / tot) + '%</span></span><b>' + money(sum[i.id], 'ARS') + '</b></div>'; });
+  if (sum.sin) h += '<div class="imp-r"><span>▫️ Sin clasificar</span><b>' + money(sum.sin, 'ARS') + '</b></div>';
+  return h + '</div>';
+}
 const catDe = id => CATS.find(c => c.id === id) || CATS[CATS.length - 1];
 
 /* ───────── Núcleo de fechas y vencimientos (puro, testeable) ───────── */
@@ -507,6 +528,7 @@ function vInicio(){
     '<div class="barra"><i style="width:' + pct + '%"></i></div>' +
     '<div class="mini">Pagado ' + money(t.ARS.pag, 'ARS') + ' de ' + money(tot, 'ARS') + ' · ' + pct + '%</div>' +
     ((t.USD.pend + t.USD.pag) > 0 ? '<div class="usd">En dólares: falta ' + money(t.USD.pend, 'USD') + ' · pagado ' + money(t.USD.pag, 'USD') + '</div>' : '') + '</div>';
+  h += tarjetaImportancia(delMes);
   h += avisoPush();
   h += '<h2>Próximos vencimientos</h2>';
   if (!S.cargado.gastos) return h + '<div class="vacio">Cargando…</div>';
@@ -543,6 +565,7 @@ function vGastos(){
   h += '<div class="card" style="margin-bottom:12px"><div class="kv"><span>Falta pagar</span><b>' + money(t.ARS.pend, 'ARS') + (t.USD.pend ? ' + ' + money(t.USD.pend, 'USD') : '') + '</b></div>' +
        '<div class="kv"><span>Ya pagado</span><b>' + money(t.ARS.pag, 'ARS') + (t.USD.pag ? ' + ' + money(t.USD.pag, 'USD') : '') + '</b></div></div>';
   if (!S.cargado.gastos) return h + '<div class="vacio">Cargando…</div>';
+  h += tarjetaImportancia(ocs);
   if (!ocs.length) return h + '<div class="card vacio">No hay gastos este mes.<br>Tocá <b>+</b> para agregar.</div>';
   if (S.abiertasInit !== S.mes) { S.abiertasInit = S.mes; S.abiertas = new Set(ocs.filter(o => !o.pago).map(o => catDe(o.g.categoria).id)); }
   const grupos = {};
@@ -561,7 +584,7 @@ function filaGasto(o, hoy){
   const sub = o.pago ? 'Pagado ' + fechaCorta(o.pago.fecha || o.fecha) + (o.pago.porNombre ? ' · ' + esc(o.pago.porNombre) : '')
     : '<span class="' + (venc ? 'v' : '') + '">' + Core.cuando(diff) + ' · ' + fechaCorta(o.fecha) + '</span>';
   return '<div class="row ' + (o.pago ? 'pagado' : '') + '"><button class="chk ' + (o.pago ? 'ok' : venc ? 'venc-x' : '') + '" data-a="' + (o.pago ? 'despagar' : 'pagar') + '" data-k="' + esc(o.key) + '" data-g="' + esc(g.id) + '" data-m="' + o.ym + '" aria-label="' + (o.pago ? 'Deshacer pago' : 'Marcar pagado') + '">' + (o.pago ? '✓' : '') + '</button>' +
-    '<div class="main" data-a="editar" data-g="' + esc(g.id) + '"><b>' + esc(g.nombre) + '</b><small>' + sub + (g.tipo === 'unico' ? ' · único' : '') + '</small></div>' +
+    '<div class="main" data-a="editar" data-g="' + esc(g.id) + '"><b>' + esc(g.nombre) + '</b><small>' + sub + (g.tipo === 'unico' ? ' · único' : '') + (impDe(g.importancia) ? ' · ' + impDe(g.importancia).e + ' ' + esc(impDe(g.importancia).c) : '') + '</small></div>' +
     '<div class="monto">' + money(o.pago ? o.pago.monto : g.monto, g.moneda) + '</div></div>';
 }
 
@@ -621,12 +644,13 @@ function pantBloqueo(){
 let formG = null;
 function abrirGasto(id){
   const g = id ? S.gastos.find(x => x.id === id) : null;
-  formG = {tipo: g ? g.tipo : 'fijo', moneda: g ? (g.moneda || 'ARS') : 'ARS'};
+  formG = {tipo: g ? g.tipo : 'fijo', moneda: g ? (g.moneda || 'ARS') : 'ARS', imp: g && impDe(g.importancia) ? g.importancia : ''};
   const hoyD = new Date().getDate();
   const v = hoja(
     '<h3>' + (g ? 'Editar gasto' : 'Nuevo gasto') + '</h3>' +
     '<label class="f">Nombre</label><input class="in" id="gNombre" maxlength="80" placeholder="Ej: Alquiler" value="' + esc(g ? g.nombre : '') + '">' +
     '<label class="f">Categoría</label><select class="in" id="gCat">' + CATS.map(c => '<option value="' + c.id + '"' + (g && g.categoria === c.id ? ' selected' : '') + '>' + c.e + ' ' + esc(c.n) + '</option>').join('') + '</select>' +
+    '<label class="f">Importancia (obligatorio)</label><div class="seg s3" id="gImp">' + IMPS.map(i => '<button data-v="' + i.id + '" class="' + (formG.imp === i.id ? 'on' : '') + '">' + i.e + ' ' + esc(i.c) + '</button>').join('') + '</div>' +
     '<div class="grid2"><div><label class="f">Monto</label><input class="in" id="gMonto" inputmode="decimal" placeholder="Ej: 85000" value="' + (g ? esc(g.monto) : '') + '"></div>' +
     '<div><label class="f">Moneda</label><div class="seg" id="gMon"><button data-v="ARS" class="' + (formG.moneda === 'ARS' ? 'on' : '') + '">$ Pesos</button><button data-v="USD" class="' + (formG.moneda === 'USD' ? 'on' : '') + '">US$</button></div></div></div>' +
     '<label class="f">¿Cada cuánto?</label><div class="seg" id="gTipo"><button data-v="fijo" class="' + (formG.tipo === 'fijo' ? 'on' : '') + '">Todos los meses</button><button data-v="unico" class="' + (formG.tipo === 'unico' ? 'on' : '') + '">Una sola vez</button></div>' +
@@ -649,7 +673,7 @@ function abrirGasto(id){
   const gd = $('#gDesde', v); if (gd) gd.addEventListener('change', () => gd.dataset.t = '1');
   v.addEventListener('click', async e => {
     const sg = e.target.closest('.seg button');
-    if (sg) { const p = sg.parentElement; p.querySelectorAll('button').forEach(b => b.classList.remove('on')); sg.classList.add('on'); if (p.id === 'gMon') formG.moneda = sg.dataset.v; else { formG.tipo = sg.dataset.v; ajustar(); } return; }
+    if (sg) { const p = sg.parentElement; p.querySelectorAll('button').forEach(b => b.classList.remove('on')); sg.classList.add('on'); if (p.id === 'gImp') formG.imp = sg.dataset.v; else if (p.id === 'gMon') formG.moneda = sg.dataset.v; else { formG.tipo = sg.dataset.v; ajustar(); } return; }
     const b = e.target.closest('[data-r]'); if (!b) return;
     if (b.dataset.r === 'x') return v.remove();
     if (b.dataset.r === 'del') { if (await preguntar('¿Eliminar “' + g.nombre + '” y su historial de pagos?', 'Eliminar', true)) { await eliminarGasto(g.id); v.remove(); } return; }
@@ -660,8 +684,9 @@ async function guardarGasto(v, g){
   const err = m => { const e = $('#gErr', v); e.textContent = m; e.classList.remove('oculto'); };
   const nombre = $('#gNombre', v).value.trim(), monto = Core.parseMonto($('#gMonto', v).value), cat = $('#gCat', v).value;
   if (!nombre) return err('Poné un nombre.');
+  if (!formG.imp) return err('Elegí la importancia: Fijo, Opcional o Innecesario.');
   if (isNaN(monto) || monto < 0) return err('Escribí el monto con números. Ej: 85000');
-  const doc = {nombre, categoria: cat, monto, moneda: formG.moneda, tipo: formG.tipo, nota: $('#gNota', v).value.trim()};
+  const doc = {nombre, categoria: cat, monto, moneda: formG.moneda, tipo: formG.tipo, importancia: formG.imp, nota: $('#gNota', v).value.trim()};
   const borrar = [];
   if (formG.tipo === 'fijo') {
     const dia = parseInt($('#gDia', v).value, 10);
