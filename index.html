@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<!--
+  GastAr — gastos del hogar, compartidos y con avisos
+  Versión: 1.0.0
+  Fecha: 2026-11-18
+  Changelog:
+    1.0.0 — Primera versión: hogar compartido por código, vencimientos fijos mensuales y únicos,
+            inicio con 8 próximos vencimientos (2 rojo, 2 naranja, 2 amarillo, 2 verde),
+            lista por categoría desplegable, pesos y USD, avisos push, prueba de 14 días,
+            menú admin oculto (5 toques al logo, se reconoce por el documento admins/{uid}),
+            backup, recorrido guiado, PWA instalable.
+  PENDIENTE:
+    - Cargar la configuración real de Firebase, la clave VAPID y el WhatsApp de ventas (bloque CONFIG).
+    - Publicar reglas (qa/rules/gastar.rules) y la función de avisos (netlify/functions/avisos.js).
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GastAr — Gastos del hogar</title>
+<meta name="description" content="GastAr: los gastos y vencimientos de tu hogar, compartidos con tu pareja y con avisos en el celular.">
+<meta name="theme-color" content="#0F766E">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="GastAr">
+<style>
+:root{
+  --bg:#f3f7f6; --card:#ffffff; --tx:#10302d; --mut:#5b7471; --brand:#0F766E; --brand2:#134E4A; --line:#dbe7e5;
+  --acc:#FBBF24; --ok:#16a34a; --sh:0 1px 3px rgba(16,48,45,.10);
+  --red:#dc2626; --redbg:#fee2e2; --org:#ea580c; --orgbg:#ffedd5; --yel:#a16207; --yelbg:#fef9c3; --grn:#15803d; --grnbg:#dcfce7;
+}
+:root[data-tema="oscuro"]{
+  --bg:#0c1b1a; --card:#142826; --tx:#e6f2f0; --mut:#93b0ac; --brand:#2dd4bf; --brand2:#99f6e4; --line:#24413e;
+  --sh:none;
+  --redbg:#3b1717; --orgbg:#3a2412; --yelbg:#35300f; --grnbg:#10301c;
+  --red:#f87171; --org:#fb923c; --yel:#facc15; --grn:#4ade80;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px}
+body{min-height:100vh;min-height:100dvh}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.oculto{display:none!important}
+
+/* Pantalla de carga */
+#carga{position:fixed;inset:0;background:#0F766E;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;transition:opacity .4s}
+#carga.fuera{opacity:0;pointer-events:none}
+.moneda{width:84px;height:84px;border-radius:50%;background:#FBBF24;border:8px solid #134E4A;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:800;color:#134E4A;animation:gira 1.4s ease-in-out infinite}
+@keyframes gira{0%{transform:rotateY(0)}50%{transform:rotateY(180deg) translateY(-10px)}100%{transform:rotateY(360deg)}}
+#carga h1{color:#fff;margin:22px 0 4px;font-size:28px;letter-spacing:.5px}
+#carga p{color:#b7efe6;margin:0}
+
+/* Estructura */
+.wrap{max-width:560px;margin:0 auto;padding:0 14px}
+header.top{position:sticky;top:0;z-index:20;background:var(--brand);color:#fff;padding:calc(env(safe-area-inset-top) + 10px) 0 10px}
+[data-tema="oscuro"] header.top{background:#0f3a36}
+header.top .wrap{display:flex;align-items:center;gap:10px}
+.logo{width:38px;height:38px;border-radius:10px;flex:none;cursor:pointer;user-select:none}
+.ttl{flex:1;min-width:0}
+.ttl b{display:block;font-size:19px;line-height:1.1}
+.ttl small{display:block;opacity:.85;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ibtn{background:rgba(255,255,255,.16);border:0;color:#fff;width:38px;height:38px;border-radius:50%;font-size:18px}
+main{padding:14px 0 150px}
+h2{font-size:15px;margin:18px 2px 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px}
+.card{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--sh);border:1px solid var(--line)}
+.btn{border:0;border-radius:12px;padding:12px 16px;font-weight:700;background:var(--brand);color:#fff}
+[data-tema="oscuro"] .btn{color:#062b27}
+.btn.sec{background:transparent;color:var(--brand);border:1.5px solid var(--brand)}
+.btn.peli{background:var(--red);color:#fff}
+.btn.full{width:100%}
+.btn.chico{padding:8px 12px;font-size:14px}
+.btn:disabled{opacity:.4}
+.fila{display:flex;gap:10px;align-items:center}
+.mut{color:var(--mut)}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+
+/* Resumen */
+.resumen .mes{font-weight:700;font-size:14px;color:var(--mut)}
+.resumen .grande{font-size:30px;font-weight:800;margin:2px 0}
+.barra{height:10px;border-radius:99px;background:var(--line);overflow:hidden;margin:10px 0 6px}
+.barra i{display:block;height:100%;background:var(--ok);width:0;transition:width .5s}
+.usd{font-size:14px;color:var(--mut)}
+
+/* Vencimientos */
+.venc{display:flex;gap:10px;align-items:center;border-radius:14px;padding:11px 12px;margin-bottom:9px;border-left:7px solid;min-width:0}
+.venc.c-red{background:var(--redbg);border-color:var(--red)}
+.venc.c-org{background:var(--orgbg);border-color:var(--org)}
+.venc.c-yel{background:var(--yelbg);border-color:var(--yel)}
+.venc.c-grn{background:var(--grnbg);border-color:var(--grn)}
+.venc .ico{font-size:24px;flex:none}
+.venc .main{flex:1;min-width:0;cursor:pointer}
+.venc .main b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.venc .main small{display:block;font-size:13px;font-weight:600}
+.c-red small{color:var(--red)} .c-org small{color:var(--org)} .c-yel small{color:var(--yel)} .c-grn small{color:var(--grn)}
+.venc .monto{font-weight:800;text-align:right;white-space:nowrap;font-size:15px}
+.venc .btn{padding:9px 12px;font-size:14px}
+
+/* Lista por categoría */
+.mesnav{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.mesnav b{font-size:17px}
+.cat{margin-bottom:10px;padding:0;overflow:hidden}
+.cat-h{display:flex;align-items:center;gap:10px;padding:13px 14px;width:100%;background:none;border:0;text-align:left}
+.cat-h .t{flex:1;min-width:0}
+.cat-h .t b{display:block}
+.cat-h .t small{color:var(--mut);font-size:12.5px}
+.cat-h .chev{transition:transform .2s;color:var(--mut)}
+.cat.abierta .chev{transform:rotate(180deg)}
+.cat-b{display:none;border-top:1px solid var(--line)}
+.cat.abierta .cat-b{display:block}
+.row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.chk{width:30px;height:30px;border-radius:50%;border:2.5px solid var(--mut);background:none;flex:none;color:#fff;font-weight:900;line-height:1;padding:0}
+.chk.ok{background:var(--ok);border-color:var(--ok)}
+.chk.venc-x{border-color:var(--red)}
+.row .main{flex:1;min-width:0;cursor:pointer}
+.row .main b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .main small{color:var(--mut);font-size:12.5px}
+.row .main small .v{color:var(--red);font-weight:700}
+.row.pagado .main b{text-decoration:line-through;color:var(--mut)}
+.row .monto{font-weight:700;white-space:nowrap;font-size:14.5px}
+.vacio{text-align:center;color:var(--mut);padding:26px 10px}
+
+/* Barra inferior */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav.tabs .wrap{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+nav.tabs button{background:none;border:0;padding:9px 0 7px;color:var(--mut);font-size:12px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px}
+nav.tabs button span{font-size:22px;line-height:1}
+nav.tabs button.on{color:var(--brand)}
+.fab{position:fixed;right:max(16px,calc(50% - 264px));bottom:calc(76px + env(safe-area-inset-bottom));z-index:31;width:58px;height:58px;border-radius:50%;border:0;background:var(--acc);color:#134E4A;font-size:34px;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.3);line-height:1}
+
+/* Banners */
+.banner{border-radius:12px;padding:11px 13px;margin-bottom:10px;font-size:14px;display:flex;gap:10px;align-items:center}
+.banner.demo{background:var(--grnbg);color:var(--tx);border:1px solid var(--grn)}
+.banner.demo.urgente{background:var(--redbg);border-color:var(--red);animation:titila 1s infinite}
+@keyframes titila{50%{opacity:.55}}
+.banner.info{background:var(--card);border:1px solid var(--line)}
+.banner .btn{margin-left:auto;flex:none}
+
+/* Formularios y hojas */
+.velo{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:60;display:flex;align-items:flex-end;justify-content:center}
+.hoja{background:var(--card);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom))}
+.hoja h3{margin:0 0 12px;font-size:19px}
+label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10px 0 4px}
+.in{width:100%;border:1.5px solid var(--line);background:var(--bg);border-radius:11px;padding:11px 12px;min-width:0}
+.in:focus{outline:2px solid var(--brand);border-color:var(--brand)}
+.seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.seg button{border:1.5px solid var(--line);background:var(--bg);border-radius:11px;padding:10px;font-weight:600}
+.seg button.on{border-color:var(--brand);background:var(--brand);color:#fff}
+[data-tema="oscuro"] .seg button.on{color:#062b27}
+.err{background:var(--redbg);color:var(--red);border-radius:10px;padding:9px 11px;font-size:13.5px;margin-top:10px;word-break:break-word}
+.acc{display:flex;gap:10px;margin-top:16px}
+.acc .btn{flex:1}
+
+/* Pantallas completas (login, hogar, bloqueo) */
+.pant{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;background:linear-gradient(160deg,#0F766E,#134E4A);color:#fff}
+.pant .moneda{animation:none;margin-bottom:6px}
+.pant h1{margin:14px 0 4px;font-size:34px}
+.pant p{margin:6px 0 16px;color:#c9f1ea;max-width:340px}
+.pant .card{color:var(--tx);width:100%;max-width:380px;text-align:left}
+.pant>.btn{background:var(--acc);color:#134E4A}
+.pant .card .btn{background:var(--brand);color:#fff}
+.pant .card .btn.sec{background:transparent;color:var(--brand)}
+.codigo{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:26px;letter-spacing:4px;font-weight:800;text-align:center;padding:10px;background:var(--bg);border-radius:12px;border:2px dashed var(--brand)}
+
+.toast{position:fixed;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#10302d;color:#fff;padding:11px 16px;border-radius:12px;z-index:90;max-width:90%;font-size:14px;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.kv{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14.5px}
+.kv:last-child{border-bottom:0}
+.kv>span:last-child,.kv>b:last-child{text-align:right;word-break:break-word;min-width:0}
+.mini{font-size:12.5px;color:var(--mut)}
+.tour-demo .venc{margin-bottom:6px}
+.pie{text-align:center;color:var(--mut);font-size:12px;margin:22px 0 0}
+</style>
+</head>
+<body>
+
+<div id="carga"><div class="moneda">$</div><h1>GastAr</h1><p>Los gastos de tu hogar, al día</p></div>
+<div id="root"></div>
+
+<!-- SDK Firebase (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+
+<script>
+/* ═══════════════ CONFIG (se completa una sola vez) ═══════════════ */
+const VERSION = '1.0.0';
+const FIREBASE_CONFIG = {
+  apiKey: 'PEGAR_API_KEY',
+  authDomain: 'PEGAR_PROJECT_ID.firebaseapp.com',
+  projectId: 'PEGAR_PROJECT_ID',
+  storageBucket: 'PEGAR_PROJECT_ID.appspot.com',
+  messagingSenderId: 'PEGAR_SENDER_ID',
+  appId: 'PEGAR_APP_ID'
+};
+const VAPID_KEY = 'PEGAR_CLAVE_VAPID_PUBLICA';      // Firebase > Cloud Messaging > Certificados push web
+const WA_VENTAS = '5490000000000';                   // WhatsApp de RavenTechs para activar cuentas (sin + ni espacios)
+const DIAS_DEMO = 14;
+const LIMITE_INTEGRANTES = 2;
+/* ═════════════════════════════════════════════════════════════════ */
+
+/* ───────── Utilidades ───────── */
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const CATS = [
+  {id:'impuestos', n:'Impuestos', e:'🏛️'}, {id:'servicios', n:'Servicios', e:'💡'}, {id:'hogar', n:'Hogar y alquiler', e:'🏠'},
+  {id:'alimentos', n:'Alimentos', e:'🛒'}, {id:'salud', n:'Salud', e:'🩺'}, {id:'educacion', n:'Educación', e:'🎓'},
+  {id:'familia', n:'Familia', e:'👨‍👩‍👧'}, {id:'seguros', n:'Seguros', e:'🛡️'}, {id:'suscripciones', n:'Suscripciones', e:'📱'},
+  {id:'transporte', n:'Transporte', e:'🚗'}, {id:'deudas', n:'Deudas y tarjetas', e:'💳'}, {id:'otros', n:'Otros', e:'📦'}
+];
+const catDe = id => CATS.find(c => c.id === id) || CATS[CATS.length - 1];
+
+/* ───────── Núcleo de fechas y vencimientos (puro, testeable) ───────── */
+const Core = {
+  hoy(){ const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); },
+  ymNow(){ return Core.hoy().slice(0, 7); },
+  addMonths(ym, n){ let [y, m] = ym.split('-').map(Number); m = m - 1 + n; y += Math.floor(m / 12); m = ((m % 12) + 12) % 12; return y + '-' + pad(m + 1); },
+  dim(y, m){ return new Date(y, m, 0).getDate(); },
+  diffDays(a, b){ const [y1, m1, d1] = a.split('-').map(Number), [y2, m2, d2] = b.split('-').map(Number); return Math.round((Date.UTC(y1, m1 - 1, d1) - Date.UTC(y2, m2 - 1, d2)) / 86400000); },
+  fechaDe(g, ym){
+    if (g.tipo === 'unico') return (g.fecha && g.fecha.slice(0, 7) === ym) ? g.fecha : null;
+    if (g.desdeMes && ym < g.desdeMes) return null;
+    if (g.hastaMes && ym > g.hastaMes) return null;
+    const [y, m] = ym.split('-').map(Number);
+    return ym + '-' + pad(Math.min(Number(g.dia) || 1, Core.dim(y, m)));
+  },
+  clave(g, ym){ return g.tipo === 'unico' ? g.id + '_u' : g.id + '_' + ym; },
+  /* Ocurrencias de gastos para una lista de meses. */
+  ocurrencias(gastos, pagos, meses){
+    const out = [];
+    for (const g of gastos) {
+      if (g.tipo === 'unico') {
+        if (!g.fecha) continue;
+        const ym = g.fecha.slice(0, 7);
+        if (meses.includes(ym)) out.push({g, ym, fecha: g.fecha, key: Core.clave(g, ym), pago: pagos.get(Core.clave(g, ym)) || null});
+      } else {
+        for (const ym of meses) {
+          const f = Core.fechaDe(g, ym);
+          if (f) out.push({g, ym, fecha: f, key: Core.clave(g, ym), pago: pagos.get(Core.clave(g, ym)) || null});
+        }
+      }
+    }
+    return out.sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.g.nombre.localeCompare(b.g.nombre));
+  },
+  /* Pendientes para el inicio: sin pago, ordenados por fecha; incluye únicos vencidos de cualquier mes. */
+  pendientes(gastos, pagos, hoy){
+    const cur = hoy.slice(0, 7);
+    const meses = [-2, -1, 0, 1, 2, 3].map(n => Core.addMonths(cur, n));
+    const out = Core.ocurrencias(gastos, pagos, meses).filter(o => !o.pago);
+    for (const g of gastos) {
+      if (g.tipo === 'unico' && g.fecha && g.fecha.slice(0, 7) < meses[0] && !pagos.get(Core.clave(g, g.fecha.slice(0, 7)))) {
+        out.push({g, ym: g.fecha.slice(0, 7), fecha: g.fecha, key: Core.clave(g, g.fecha.slice(0, 7)), pago: null});
+      }
+    }
+    return out.sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
+  },
+  /* Color por posición en la lista de 8: 2 rojo, 2 naranja, 2 amarillo, 2 verde. */
+  colorPos(i){ return ['c-red', 'c-red', 'c-org', 'c-org', 'c-yel', 'c-yel', 'c-grn', 'c-grn'][i] || 'c-grn'; },
+  cuando(diff){
+    if (diff < -1) return 'Vencido hace ' + (-diff) + ' días';
+    if (diff === -1) return 'Venció ayer';
+    if (diff === 0) return 'Vence hoy';
+    if (diff === 1) return 'Vence mañana';
+    return 'Vence en ' + diff + ' días';
+  },
+  parseMonto(s){
+    s = String(s == null ? '' : s).trim().replace(/[\s$]|US/gi, '');
+    if (!s) return NaN;
+    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+    else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+    const n = Number(s);
+    return isFinite(n) ? n : NaN;
+  },
+  totales(ocs){
+    const t = {ARS: {pend: 0, pag: 0}, USD: {pend: 0, pag: 0}};
+    for (const o of ocs) {
+      const m = (o.g.moneda === 'USD') ? 'USD' : 'ARS';
+      if (o.pago) t[m].pag += Number(o.pago.monto) || 0; else t[m].pend += Number(o.g.monto) || 0;
+    }
+    return t;
+  }
+};
+const money = (n, cur) => (cur === 'USD' ? 'US$ ' : '$ ') + new Intl.NumberFormat('es-AR', {maximumFractionDigits: 2}).format(Number(n) || 0);
+const fechaCorta = f => { const [y, m, d] = f.split('-'); return d + '/' + m; };
+const nombreMes = ym => { const [y, m] = ym.split('-').map(Number); const t = new Date(y, m - 1, 1).toLocaleDateString('es-AR', {month: 'long', year: 'numeric'}); return t.charAt(0).toUpperCase() + t.slice(1); };
+
+/* ───────── Firebase ───────── */
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const FV = firebase.firestore.FieldValue;
+const TS = firebase.firestore.Timestamp;
+try { db.enablePersistence({synchronizeTabs: true}).catch(() => {}); } catch (e) {}
+
+/* ───────── Estado ───────── */
+const S = {
+  user: null, admin: false, userDoc: null, hid: null, hogar: null, gastos: [], pagos: new Map(),
+  tab: 'inicio', mes: Core.ymNow(), abiertas: new Set(), abiertasInit: null,
+  unsubs: [], cargado: {gastos: false, pagos: false}, instalar: null, errCount: 0
+};
+const esAdmin = () => !!(S.user && S.admin);
+const root = document.getElementById('root');
+const $ = (s, el) => (el || document).querySelector(s);
+
+/* ───────── Registro de errores (colección errores, solo crear) ───────── */
+function logError(msg, stack){
+  try {
+    if (S.errCount++ > 4 || !S.user) return;
+    db.collection('errores').add({app: 'gastar', v: VERSION, msg: String(msg).slice(0, 300), stack: String(stack || '').slice(0, 600), uid: S.user.uid, ua: navigator.userAgent.slice(0, 160), ts: FV.serverTimestamp()}).catch(() => {});
+  } catch (e) {}
+}
+window.addEventListener('error', e => logError(e.message, e.error && e.error.stack));
+window.addEventListener('unhandledrejection', e => logError('promesa: ' + (e.reason && e.reason.message || e.reason), e.reason && e.reason.stack));
+
+/* ───────── UI básica ───────── */
+function toast(msg, ms){
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t);
+  setTimeout(() => t.remove(), ms || 2600);
+}
+function hoja(html, opts){
+  const v = document.createElement('div'); v.className = 'velo';
+  v.innerHTML = '<div class="hoja" role="dialog">' + html + '</div>';
+  v.addEventListener('mousedown', e => { if (e.target === v && !(opts && opts.fija)) v.remove(); });
+  document.body.appendChild(v);
+  return v;
+}
+function preguntar(texto, ok, peligro){
+  return new Promise(res => {
+    const v = hoja('<h3>' + esc(texto) + '</h3><div class="acc"><button class="btn sec" data-r="0">Cancelar</button><button class="btn ' + (peligro ? 'peli' : '') + '" data-r="1">' + esc(ok || 'Aceptar') + '</button></div>');
+    v.addEventListener('click', e => { const b = e.target.closest('[data-r]'); if (b) { v.remove(); res(b.dataset.r === '1'); } });
+  });
+}
+function temaInicial(){
+  let t = null; try { t = localStorage.getItem('gastar-tema'); } catch (e) {}
+  if (!t) t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'oscuro' : 'claro';
+  document.documentElement.setAttribute('data-tema', t);
+}
+function cambiarTema(){
+  const t = document.documentElement.getAttribute('data-tema') === 'oscuro' ? 'claro' : 'oscuro';
+  document.documentElement.setAttribute('data-tema', t);
+  try { localStorage.setItem('gastar-tema', t); } catch (e) {}
+}
+temaInicial();
+
+const LOGO_SVG = '<svg class="logo" id="logoAdmin" viewBox="0 0 512 512"><rect width="512" height="512" rx="90" fill="#134E4A"/><polygon points="256,118 376,222 136,222" fill="#fff"/><rect x="158" y="218" width="196" height="140" rx="10" fill="#fff"/><rect x="236" y="280" width="40" height="78" rx="6" fill="#134E4A"/><rect x="180" y="244" width="38" height="38" rx="6" fill="#134E4A"/><circle cx="338" cy="336" r="62" fill="#FBBF24" stroke="#134E4A" stroke-width="12"/><text x="338" y="364" font-family="Arial,sans-serif" font-weight="700" font-size="82" text-anchor="middle" fill="#134E4A">$</text></svg>';
+
+/* ───────── Menú admin oculto: 5 toques al logo, abre directo solo con la cuenta admin ───────── */
+let toques = 0, toqueT = null;
+document.addEventListener('click', e => {
+  if (!e.target.closest('#logoAdmin')) return;
+  toques++; clearTimeout(toqueT); toqueT = setTimeout(() => toques = 0, 3000);
+  if (toques >= 5) { toques = 0; if (esAdmin()) abrirAdmin(); }
+});
+
+/* ───────── Instalación PWA ───────── */
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.instalar = e; render(); });
+window.addEventListener('appinstalled', () => { S.instalar = null; render(); });
+async function instalarApp(){
+  if (!S.instalar) return;
+  S.instalar.prompt(); try { await S.instalar.userChoice; } catch (e) {}
+  S.instalar = null; render();
+}
+const esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const instalada = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+
+/* ───────── Autenticación ───────── */
+async function ingresarGoogle(){
+  const b = $('#btnGoogle'); if (b) b.disabled = true;
+  try {
+    await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+  } catch (e) {
+    if (b) b.disabled = false;
+    const m = $('#errLogin'); if (m) { m.textContent = 'No se pudo ingresar (' + (e.code || e.message) + '). Probá abrirlo en Chrome.'; m.classList.remove('oculto'); }
+  }
+}
+auth.onAuthStateChanged(async u => {
+  cortarListeners();
+  S.user = u; S.admin = false; S.userDoc = null; S.hid = null; S.hogar = null; S.gastos = []; S.pagos = new Map(); backupHecho = false;
+  S.tab = 'inicio'; S.mes = Core.ymNow(); S.abiertasInit = null; S.abiertas = new Set();
+  if (!u) { finCarga(); return render(); }
+  try {
+    try { const a = await db.collection('admins').doc(u.uid).get(); S.admin = !!a.exists; } catch (e) { S.admin = false; }
+    const ref = db.collection('usuarios').doc(u.uid);
+    const snap = await ref.get();
+    S.userDoc = snap.exists ? snap.data() : null;
+    await ref.set({email: u.email || '', nombre: u.displayName || '', ult: FV.serverTimestamp()}, {merge: true});
+    if (S.userDoc && S.userDoc.hogarId) await escucharHogar(S.userDoc.hogarId);
+  } catch (e) { console.error(e); logError(e.message, e.stack); }
+  finCarga(); render();
+});
+function finCarga(){ const c = document.getElementById('carga'); if (c) { c.classList.add('fuera'); setTimeout(() => c.remove(), 500); } }
+function cortarListeners(){ S.unsubs.forEach(f => { try { f(); } catch (e) {} }); S.unsubs = []; S.cargado = {gastos: false, pagos: false}; }
+
+async function escucharHogar(hid){
+  S.hid = hid;
+  const href = db.collection('hogares').doc(hid);
+  await new Promise(resolve => {
+    let primera = true;
+    S.unsubs.push(href.onSnapshot(s => {
+      if (!s.exists) { S.hogar = null; } else { S.hogar = Object.assign({id: s.id}, s.data()); }
+      if (primera) { primera = false; resolve(); } else render();
+    }, err => {
+      console.error(err); S.hogar = null; S.hid = null;
+      db.collection('usuarios').doc(S.user.uid).set({hogarId: null}, {merge: true}).catch(() => {});
+      if (primera) { primera = false; resolve(); } else render();
+    }));
+  });
+  if (!S.hogar) return;
+  S.unsubs.push(href.collection('gastos').onSnapshot(q => {
+    S.gastos = q.docs.map(d => Object.assign({id: d.id}, d.data())); S.cargado.gastos = true; alCargar(); render();
+  }, e => { console.error(e); logError('gastos: ' + e.message); }));
+  S.unsubs.push(href.collection('pagos').onSnapshot(q => {
+    const m = new Map(); q.docs.forEach(d => m.set(d.id, Object.assign({id: d.id}, d.data()))); S.pagos = m; S.cargado.pagos = true; alCargar(); render();
+  }, e => { console.error(e); logError('pagos: ' + e.message); }));
+}
+let backupHecho = false;
+function alCargar(){ if (S.cargado.gastos && S.cargado.pagos && !backupHecho) { backupHecho = true; backupDiario(); } }
+
+/* ───────── Hogar: crear / unirse ───────── */
+function generarCodigo(){
+  const al = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; const a = new Uint32Array(8); crypto.getRandomValues(a);
+  return Array.from(a).map(n => al[n % al.length]).join('');
+}
+async function crearHogar(){
+  const nombre = ($('#hogarNombre').value || '').trim() || 'Mi hogar';
+  const u = S.user, cod = generarCodigo(), hid = db.collection('hogares').doc().id;
+  const b = db.batch();
+  b.set(db.collection('hogares').doc(hid), {
+    nombre: nombre.slice(0, 60), ownerUid: u.uid, ownerEmail: u.email || '', miembros: [u.uid],
+    integrantes: {[u.uid]: {nombre: u.displayName || '', email: u.email || ''}},
+    codigoActual: cod, limiteIntegrantes: LIMITE_INTEGRANTES,
+    demoHasta: TS.fromMillis(Date.now() + DIAS_DEMO * 86400000), creado: FV.serverTimestamp(), version: 1
+  });
+  b.set(db.collection('invitaciones').doc(cod), {hogarId: hid, ownerUid: u.uid, creado: FV.serverTimestamp()});
+  b.set(db.collection('usuarios').doc(u.uid), {hogarId: hid}, {merge: true});
+  try { await b.commit(); } catch (e) { return errPant('No se pudo crear el hogar (' + (e.code || e.message) + ')'); }
+  S.userDoc = {hogarId: hid}; cortarListeners(); backupHecho = false; await escucharHogar(hid); render();
+}
+async function unirseHogar(){
+  const cod = ($('#hogarCodigo').value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (cod.length < 6) return errPant('Escribí el código completo que te pasaron.');
+  const u = S.user;
+  try {
+    const inv = await db.collection('invitaciones').doc(cod).get();
+    if (!inv.exists) return errPant('Ese código no existe o ya fue reemplazado. Pedí uno nuevo.');
+    const hid = inv.data().hogarId;
+    await db.collection('hogares').doc(hid).update({
+      miembros: FV.arrayUnion(u.uid), ['integrantes.' + u.uid]: {nombre: u.displayName || '', email: u.email || ''}, joinCode: cod
+    });
+    await db.collection('usuarios').doc(u.uid).set({hogarId: hid}, {merge: true});
+    S.userDoc = {hogarId: hid}; cortarListeners(); backupHecho = false; await escucharHogar(hid); render();
+  } catch (e) {
+    errPant(e.code === 'permission-denied' ? 'No se pudo unir: el hogar ya tiene el máximo de integrantes de su plan o el código no es válido.' : 'No se pudo unir (' + (e.code || e.message) + ')');
+  }
+}
+function errPant(m){ const e = $('#errHogar'); if (e) { e.textContent = m; e.classList.remove('oculto'); } }
+
+/* ───────── Estado de la prueba ───────── */
+function demoInfo(){
+  const h = S.hogar; if (!h || esAdmin()) return {estado: 'cliente'};
+  if (h.demoHasta === null || h.demoHasta === undefined) return {estado: 'cliente'};
+  const ms = h.demoHasta.toMillis ? h.demoHasta.toMillis() : Number(h.demoHasta);
+  const dias = Math.ceil((ms - Date.now()) / 86400000);
+  return dias > 0 ? {estado: 'demo', dias} : {estado: 'vencida', dias: 0};
+}
+
+/* ───────── Render principal ───────── */
+function render(){
+  if (!S.user) return pantLogin();
+  if (!S.hogar) return pantHogar();
+  const d = demoInfo();
+  if (d.estado === 'vencida') return pantBloqueo();
+  const y = window.scrollY;
+  root.innerHTML = cabecera() + '<main class="wrap">' + bannerDemo(d) + (S.tab === 'inicio' ? vInicio() : S.tab === 'gastos' ? vGastos() : vAjustes()) + '</main>' +
+    (S.tab !== 'ajustes' ? '<button class="fab" data-a="nuevo" aria-label="Agregar gasto">+</button>' : '') +
+    '<nav class="tabs"><div class="wrap">' +
+    ['inicio|🏠|Inicio', 'gastos|📋|Gastos', 'ajustes|⚙️|Ajustes'].map(t => { const [id, ic, n] = t.split('|'); return '<button data-tab="' + id + '" class="' + (S.tab === id ? 'on' : '') + '"><span>' + ic + '</span>' + n + '</button>'; }).join('') +
+    '</div></nav>';
+  window.scrollTo(0, y);
+}
+function cabecera(){
+  return '<header class="top"><div class="wrap">' + LOGO_SVG + '<div class="ttl"><b>GastAr</b><small>' + esc(S.hogar.nombre) + '</small></div><button class="ibtn" data-a="tema" aria-label="Cambiar tema">🌓</button></div></header>';
+}
+function bannerDemo(d){
+  let h = '';
+  if (d.estado === 'demo') h += '<div class="banner demo ' + (d.dias <= 3 ? 'urgente' : '') + '">⏳ <span>Prueba gratis: te ' + (d.dias === 1 ? 'queda 1 día' : 'quedan ' + d.dias + ' días') + '.</span><button class="btn chico" data-a="activar">Activar</button></div>';
+  if (S.instalar && !instalada()) h += '<div class="banner info">📲 <span>Instalá GastAr como app en tu celular.</span><button class="btn chico" data-a="instalar">Instalar</button></div>';
+  else if (esIOS && !instalada()) h += '<div class="banner info">📲 <span>En iPhone: tocá Compartir y “Agregar a inicio” para instalarla y recibir avisos.</span></div>';
+  return h;
+}
+
+/* ───────── Vista Inicio ───────── */
+function vInicio(){
+  const hoy = Core.hoy(), cur = Core.ymNow();
+  const delMes = Core.ocurrencias(S.gastos, S.pagos, [cur]);
+  const t = Core.totales(delMes);
+  const tot = t.ARS.pend + t.ARS.pag, pct = tot > 0 ? Math.round(t.ARS.pag * 100 / tot) : 0;
+  let h = '<div class="card resumen"><div class="mes">' + esc(nombreMes(cur)) + '</div>' +
+    '<div class="grande">' + money(t.ARS.pend, 'ARS') + '</div><div class="mut">falta pagar este mes</div>' +
+    '<div class="barra"><i style="width:' + pct + '%"></i></div>' +
+    '<div class="mini">Pagado ' + money(t.ARS.pag, 'ARS') + ' de ' + money(tot, 'ARS') + ' · ' + pct + '%</div>' +
+    ((t.USD.pend + t.USD.pag) > 0 ? '<div class="usd">En dólares: falta ' + money(t.USD.pend, 'USD') + ' · pagado ' + money(t.USD.pag, 'USD') + '</div>' : '') + '</div>';
+  h += avisoPush();
+  h += '<h2>Próximos vencimientos</h2>';
+  if (!S.cargado.gastos) return h + '<div class="vacio">Cargando…</div>';
+  const pend = Core.pendientes(S.gastos, S.pagos, hoy).slice(0, 8);
+  if (!S.gastos.length) {
+    h += '<div class="card vacio">Todavía no cargaste gastos.<br>Tocá el <b>+</b> para agregar el primero: alquiler, luz, tarjeta…<br><br><button class="btn sec" data-a="tour">Ver cómo funciona</button></div>';
+  } else if (!pend.length) {
+    h += '<div class="card vacio">🎉 No tenés vencimientos pendientes.</div>';
+  } else {
+    h += pend.map((o, i) => cardVenc(o, i, hoy)).join('');
+    h += '<div class="mini" style="text-align:center">Rojo: lo más urgente · verde: lo que viene más adelante</div>';
+  }
+  return h;
+}
+function cardVenc(o, i, hoy){
+  const diff = Core.diffDays(o.fecha, hoy), c = catDe(o.g.categoria);
+  return '<div class="venc ' + Core.colorPos(i) + '"><div class="ico">' + c.e + '</div>' +
+    '<div class="main" data-a="editar" data-g="' + esc(o.g.id) + '"><b>' + esc(o.g.nombre) + '</b><small>' + Core.cuando(diff) + ' · ' + fechaCorta(o.fecha) + '</small></div>' +
+    '<div class="monto">' + money(o.g.monto, o.g.moneda) + '</div>' +
+    '<button class="btn" data-a="pagar" data-k="' + esc(o.key) + '" data-g="' + esc(o.g.id) + '" data-m="' + o.ym + '">Pagar</button></div>';
+}
+function avisoPush(){
+  if (!('Notification' in window) || Notification.permission === 'granted' || Notification.permission === 'denied') return '';
+  if (esIOS && !instalada()) return '';
+  return '<div class="banner info" style="margin-top:10px">🔔 <span>Activá los avisos para enterarte de los vencimientos.</span><button class="btn chico" data-a="avisos">Activar</button></div>';
+}
+
+/* ───────── Vista Gastos (secciones desplegables por categoría) ───────── */
+function vGastos(){
+  const cur = Core.ymNow(), min = Core.addMonths(cur, -2), max = Core.addMonths(cur, 2), hoy = Core.hoy();
+  const ocs = Core.ocurrencias(S.gastos, S.pagos, [S.mes]);
+  const t = Core.totales(ocs);
+  let h = '<div class="mesnav"><button class="btn sec chico" data-a="mes" data-n="-1" ' + (S.mes <= min ? 'disabled' : '') + '>‹</button><b>' + esc(nombreMes(S.mes)) + '</b><button class="btn sec chico" data-a="mes" data-n="1" ' + (S.mes >= max ? 'disabled' : '') + '>›</button></div>';
+  h += '<div class="card" style="margin-bottom:12px"><div class="kv"><span>Falta pagar</span><b>' + money(t.ARS.pend, 'ARS') + (t.USD.pend ? ' + ' + money(t.USD.pend, 'USD') : '') + '</b></div>' +
+       '<div class="kv"><span>Ya pagado</span><b>' + money(t.ARS.pag, 'ARS') + (t.USD.pag ? ' + ' + money(t.USD.pag, 'USD') : '') + '</b></div></div>';
+  if (!S.cargado.gastos) return h + '<div class="vacio">Cargando…</div>';
+  if (!ocs.length) return h + '<div class="card vacio">No hay gastos este mes.<br>Tocá <b>+</b> para agregar.</div>';
+  if (S.abiertasInit !== S.mes) { S.abiertasInit = S.mes; S.abiertas = new Set(ocs.filter(o => !o.pago).map(o => catDe(o.g.categoria).id)); }
+  const grupos = {};
+  ocs.forEach(o => { const id = catDe(o.g.categoria).id; (grupos[id] = grupos[id] || []).push(o); });
+  CATS.filter(c => grupos[c.id]).forEach(c => {
+    const l = grupos[c.id], tt = Core.totales(l), pend = l.filter(o => !o.pago).length;
+    const saldo = c.id === 'deudas' ? l.reduce((a, o) => a + (Number(o.g.saldo) || 0), 0) : 0;
+    h += '<div class="card cat ' + (S.abiertas.has(c.id) ? 'abierta' : '') + '"><button class="cat-h" data-a="cat" data-c="' + c.id + '"><span style="font-size:24px">' + c.e + '</span>' +
+      '<span class="t"><b>' + esc(c.n) + '</b><small>' + (pend ? pend + ' pendiente' + (pend > 1 ? 's' : '') : 'todo pagado ✓') + ' · ' + money(tt.ARS.pend + tt.ARS.pag, 'ARS') + (tt.USD.pend + tt.USD.pag ? ' + ' + money(tt.USD.pend + tt.USD.pag, 'USD') : '') + (saldo ? ' · saldo ' + money(saldo, 'ARS') : '') + '</small></span><span class="chev">▾</span></button>' +
+      '<div class="cat-b">' + l.map(o => filaGasto(o, hoy)).join('') + '</div></div>';
+  });
+  return h;
+}
+function filaGasto(o, hoy){
+  const g = o.g, diff = Core.diffDays(o.fecha, hoy), venc = !o.pago && diff < 0;
+  const sub = o.pago ? 'Pagado ' + fechaCorta(o.pago.fecha || o.fecha) + (o.pago.porNombre ? ' · ' + esc(o.pago.porNombre) : '')
+    : '<span class="' + (venc ? 'v' : '') + '">' + Core.cuando(diff) + ' · ' + fechaCorta(o.fecha) + '</span>';
+  return '<div class="row ' + (o.pago ? 'pagado' : '') + '"><button class="chk ' + (o.pago ? 'ok' : venc ? 'venc-x' : '') + '" data-a="' + (o.pago ? 'despagar' : 'pagar') + '" data-k="' + esc(o.key) + '" data-g="' + esc(g.id) + '" data-m="' + o.ym + '" aria-label="' + (o.pago ? 'Deshacer pago' : 'Marcar pagado') + '">' + (o.pago ? '✓' : '') + '</button>' +
+    '<div class="main" data-a="editar" data-g="' + esc(g.id) + '"><b>' + esc(g.nombre) + '</b><small>' + sub + (g.tipo === 'unico' ? ' · único' : '') + '</small></div>' +
+    '<div class="monto">' + money(o.pago ? o.pago.monto : g.monto, g.moneda) + '</div></div>';
+}
+
+/* ───────── Vista Ajustes ───────── */
+function vAjustes(){
+  const h = S.hogar, u = S.user, esDueno = h.ownerUid === u.uid;
+  const integ = h.integrantes || {};
+  const lista = (h.miembros || []).map(id => {
+    const i = integ[id] || {}; const yo = id === u.uid;
+    return '<div class="kv"><span>' + esc(i.nombre || i.email || 'Integrante') + (yo ? ' (vos)' : '') + (id === h.ownerUid ? ' · titular' : '') + '<br><span class="mini">' + esc(i.email || '') + '</span></span>' +
+      (esDueno && !yo ? '<button class="btn sec chico" data-a="quitar" data-u="' + esc(id) + '">Quitar</button>' : '') + '</div>';
+  }).join('');
+  const link = location.origin + '/?c=' + (h.codigoActual || '');
+  const notif = ('Notification' in window) ? Notification.permission : 'no-soportado';
+  return '<h2>Mi hogar</h2><div class="card"><div class="kv"><span>Nombre</span><span>' + esc(h.nombre) + (esDueno ? ' <button class="btn sec chico" data-a="renombrar">Editar</button>' : '') + '</span></div>' + lista +
+    '<div class="mini" style="margin-top:8px">Integrantes: ' + (h.miembros || []).length + ' de ' + (h.limiteIntegrantes || LIMITE_INTEGRANTES) + '</div></div>' +
+    (esDueno ? '<h2>Invitar a mi pareja</h2><div class="card"><div class="mini" style="margin-bottom:8px">Pasale este código. Entra con su Google y ve los mismos gastos.</div><div class="codigo">' + esc(h.codigoActual || '') + '</div>' +
+      '<div class="acc"><button class="btn" data-a="wa" data-l="' + esc(link) + '">Enviar por WhatsApp</button><button class="btn sec" data-a="copiar" data-l="' + esc(link) + '">Copiar link</button></div>' +
+      '<div style="margin-top:10px"><button class="btn sec chico" data-a="nuevocodigo">Generar código nuevo</button></div></div>' : '') +
+    '<h2>Avisos</h2><div class="card"><div class="mini" style="margin-bottom:8px">Te avisamos 3 días antes, 1 día antes, el mismo día y cuando algo quedó vencido.</div>' +
+      (notif === 'granted' ? '<div class="kv"><span>Avisos en este celular</span><b style="color:var(--ok)">Activados ✓</b></div><button class="btn sec chico" data-a="avisos">Volver a registrar este celular</button>' :
+       notif === 'denied' ? '<div class="err">Los avisos están bloqueados. Activalos desde los permisos del navegador para este sitio.</div>' :
+       notif === 'no-soportado' ? '<div class="mini">Este navegador no soporta avisos. En iPhone, instalá la app desde Compartir &gt; Agregar a inicio.</div>' :
+       '<button class="btn full" data-a="avisos">Activar avisos en este celular</button>') + '</div>' +
+    '<h2>Mis datos</h2><div class="card"><div class="acc" style="margin-top:0"><button class="btn sec" data-a="bk-bajar">Descargar copia</button><button class="btn sec" data-a="bk-subir">Restaurar copia</button></div><input type="file" id="bkFile" accept=".json,application/json" class="oculto"><div class="mini" style="margin-top:8px">Además se guarda una copia automática en este celular cada día (últimos 7 días).</div></div>' +
+    '<h2>Ayuda</h2><div class="card"><div class="acc" style="margin-top:0"><button class="btn sec" data-a="tour">Recorrido guiado</button><button class="btn sec" data-a="ayuda">Instructivo</button></div></div>' +
+    '<h2>Cuenta</h2><div class="card"><div class="kv"><span>Ingresaste como</span><span>' + esc(u.email || '') + '</span></div><div class="acc"><button class="btn sec" data-a="tema">Cambiar tema</button><button class="btn sec" data-a="salir">Cerrar sesión</button></div>' +
+    (!esDueno ? '<div style="margin-top:10px"><button class="btn peli chico" data-a="irse">Salir de este hogar</button></div>' : '') + '</div>' +
+    '<div class="pie">GastAr v' + VERSION + ' · RavenTechs</div>';
+}
+
+/* ───────── Pantallas completas ───────── */
+function pantLogin(){
+  root.innerHTML = '<div class="pant"><div class="moneda">$</div><h1>GastAr</h1><p>Los gastos y vencimientos de tu hogar, compartidos con tu pareja y con avisos en el celular.</p>' +
+    '<button class="btn" id="btnGoogle" style="min-width:260px;font-size:17px;padding:14px" data-a="google">Ingresar con Google</button>' +
+    '<div id="errLogin" class="err oculto" style="max-width:340px"></div>' +
+    (S.instalar && !instalada() ? '<p style="margin-top:18px"><button class="btn sec" style="color:#fff;border-color:#fff" data-a="instalar">📲 Instalar la app</button></p>' : '') + '</div>';
+}
+function pantHogar(){
+  const c = (new URLSearchParams(location.search).get('c') || '').toUpperCase();
+  root.innerHTML = '<div class="pant"><div class="moneda">$</div><h1>Tu hogar</h1><p>Hola ' + esc((S.user.displayName || '').split(' ')[0]) + '. Creá el hogar o unite al de tu pareja.</p>' +
+    '<div class="card"><b>Crear mi hogar</b><label class="f">Nombre del hogar</label><input class="in" id="hogarNombre" maxlength="60" placeholder="Ej: Casa de los Pérez">' +
+    '<div class="acc"><button class="btn full" data-a="crear">Crear hogar</button></div></div>' +
+    '<div class="card" style="margin-top:12px"><b>Tengo un código</b><label class="f">Código que te pasaron</label><input class="in" id="hogarCodigo" maxlength="12" autocapitalize="characters" placeholder="Ej: K7M2QX9A" value="' + esc(c) + '">' +
+    '<div class="acc"><button class="btn sec full" data-a="unirse">Unirme</button></div></div>' +
+    '<div id="errHogar" class="err oculto" style="max-width:380px"></div>' +
+    '<p style="margin-top:18px"><button class="btn sec" style="color:#fff;border-color:#fff" data-a="salir">Cerrar sesión</button></p></div>';
+}
+function pantBloqueo(){
+  const msg = encodeURIComponent('Hola! Quiero activar mi cuenta de GastAr. Mi correo: ' + (S.user.email || '') + ' · Hogar: ' + S.hid);
+  root.innerHTML = '<div class="pant"><div class="moneda">$</div><h1>Terminó tu prueba</h1><p>Tus datos están guardados y a salvo. Activá tu cuenta para seguir usando GastAr.</p>' +
+    '<a class="btn" style="text-decoration:none;min-width:260px;display:inline-block;padding:14px;background:var(--acc);color:#134E4A" href="https://wa.me/' + WA_VENTAS + '?text=' + msg + '" target="_blank" rel="noopener">Activar mi cuenta</a>' +
+    '<p style="margin-top:18px"><button class="btn sec" style="color:#fff;border-color:#fff" data-a="salir">Cerrar sesión</button></p></div>';
+}
+
+/* ───────── Formulario de gasto ───────── */
+let formG = null;
+function abrirGasto(id){
+  const g = id ? S.gastos.find(x => x.id === id) : null;
+  formG = {tipo: g ? g.tipo : 'fijo', moneda: g ? (g.moneda || 'ARS') : 'ARS'};
+  const hoyD = new Date().getDate();
+  const v = hoja(
+    '<h3>' + (g ? 'Editar gasto' : 'Nuevo gasto') + '</h3>' +
+    '<label class="f">Nombre</label><input class="in" id="gNombre" maxlength="80" placeholder="Ej: Alquiler" value="' + esc(g ? g.nombre : '') + '">' +
+    '<label class="f">Categoría</label><select class="in" id="gCat">' + CATS.map(c => '<option value="' + c.id + '"' + (g && g.categoria === c.id ? ' selected' : '') + '>' + c.e + ' ' + esc(c.n) + '</option>').join('') + '</select>' +
+    '<div class="grid2"><div><label class="f">Monto</label><input class="in" id="gMonto" inputmode="decimal" placeholder="Ej: 85000" value="' + (g ? esc(g.monto) : '') + '"></div>' +
+    '<div><label class="f">Moneda</label><div class="seg" id="gMon"><button data-v="ARS" class="' + (formG.moneda === 'ARS' ? 'on' : '') + '">$ Pesos</button><button data-v="USD" class="' + (formG.moneda === 'USD' ? 'on' : '') + '">US$</button></div></div></div>' +
+    '<label class="f">¿Cada cuánto?</label><div class="seg" id="gTipo"><button data-v="fijo" class="' + (formG.tipo === 'fijo' ? 'on' : '') + '">Todos los meses</button><button data-v="unico" class="' + (formG.tipo === 'unico' ? 'on' : '') + '">Una sola vez</button></div>' +
+    '<div id="bFijo"><label class="f">Día del mes que vence (1 a 31)</label><input class="in" id="gDia" inputmode="numeric" maxlength="2" value="' + (g && g.dia ? g.dia : '') + '">' +
+      (g ? '' : '<label class="f">Empieza en</label><select class="in" id="gDesde"><option value="este">Este mes</option><option value="prox">El mes que viene</option></select>') + '</div>' +
+    '<div id="bUnico"><label class="f">Fecha de vencimiento</label><input class="in" type="date" id="gFecha" value="' + esc(g && g.fecha ? g.fecha : Core.hoy()) + '"></div>' +
+    '<div id="bSaldo"><label class="f">Saldo total de la deuda (opcional)</label><input class="in" id="gSaldo" inputmode="decimal" value="' + (g && g.saldo ? esc(g.saldo) : '') + '"></div>' +
+    '<label class="f">Nota (opcional)</label><input class="in" id="gNota" maxlength="120" value="' + esc(g ? g.nota || '' : '') + '">' +
+    '<div id="gErr" class="err oculto"></div>' +
+    '<div class="acc"><button class="btn sec" data-r="x">Cancelar</button><button class="btn" data-r="ok">Guardar</button></div>' +
+    (g ? '<div class="acc"><button class="btn peli" data-r="del">Eliminar este gasto</button></div>' : ''));
+  const ajustar = () => {
+    $('#bFijo', v).classList.toggle('oculto', formG.tipo !== 'fijo'); $('#bUnico', v).classList.toggle('oculto', formG.tipo !== 'unico');
+    $('#bSaldo', v).classList.toggle('oculto', $('#gCat', v).value !== 'deudas');
+    const d = $('#gDesde', v); if (d && !d.dataset.t) { d.value = (Number($('#gDia', v).value) || 99) >= hoyD ? 'este' : 'prox'; }
+  };
+  ajustar();
+  $('#gCat', v).addEventListener('change', ajustar);
+  $('#gDia', v).addEventListener('input', ajustar);
+  const gd = $('#gDesde', v); if (gd) gd.addEventListener('change', () => gd.dataset.t = '1');
+  v.addEventListener('click', async e => {
+    const sg = e.target.closest('.seg button');
+    if (sg) { const p = sg.parentElement; p.querySelectorAll('button').forEach(b => b.classList.remove('on')); sg.classList.add('on'); if (p.id === 'gMon') formG.moneda = sg.dataset.v; else { formG.tipo = sg.dataset.v; ajustar(); } return; }
+    const b = e.target.closest('[data-r]'); if (!b) return;
+    if (b.dataset.r === 'x') return v.remove();
+    if (b.dataset.r === 'del') { if (await preguntar('¿Eliminar “' + g.nombre + '” y su historial de pagos?', 'Eliminar', true)) { await eliminarGasto(g.id); v.remove(); } return; }
+    await guardarGasto(v, g);
+  });
+}
+async function guardarGasto(v, g){
+  const err = m => { const e = $('#gErr', v); e.textContent = m; e.classList.remove('oculto'); };
+  const nombre = $('#gNombre', v).value.trim(), monto = Core.parseMonto($('#gMonto', v).value), cat = $('#gCat', v).value;
+  if (!nombre) return err('Poné un nombre.');
+  if (isNaN(monto) || monto < 0) return err('Escribí el monto con números. Ej: 85000');
+  const doc = {nombre, categoria: cat, monto, moneda: formG.moneda, tipo: formG.tipo, nota: $('#gNota', v).value.trim()};
+  const borrar = [];
+  if (formG.tipo === 'fijo') {
+    const dia = parseInt($('#gDia', v).value, 10);
+    if (!(dia >= 1 && dia <= 31)) return err('El día tiene que ser de 1 a 31.');
+    doc.dia = dia; borrar.push('fecha');
+  } else {
+    const f = $('#gFecha', v).value; if (!f) return err('Elegí la fecha.');
+    doc.fecha = f; borrar.push('dia');
+  }
+  if (cat === 'deudas') { const s = Core.parseMonto($('#gSaldo', v).value); if (isNaN(s)) borrar.push('saldo'); else doc.saldo = s; } else borrar.push('saldo');
+  try {
+    const col = db.collection('hogares').doc(S.hid).collection('gastos');
+    if (g) { const upd = Object.assign({}, doc); borrar.forEach(k => upd[k] = FV.delete()); await col.doc(g.id).update(upd); }
+    else {
+      const cur = Core.ymNow();
+      const nuevo = Object.assign({}, doc, {creadoPor: S.user.uid, creado: FV.serverTimestamp()});
+      if (formG.tipo === 'fijo') nuevo.desdeMes = ($('#gDesde', v).value === 'prox') ? Core.addMonths(cur, 1) : cur;
+      await col.add(nuevo);
+    }
+    v.remove(); toast(g ? 'Gasto actualizado' : 'Gasto agregado');
+  } catch (e) { err(e.code === 'permission-denied' ? 'No se pudo guardar: la prueba terminó o no tenés permiso.' : 'No se pudo guardar (' + (e.code || e.message) + ')'); logError(e.message, e.stack); }
+}
+async function eliminarGasto(id){
+  try {
+    const ref = db.collection('hogares').doc(S.hid);
+    const ps = await ref.collection('pagos').where('gastoId', '==', id).get();
+    const b = db.batch(); ps.docs.forEach(d => b.delete(d.ref)); b.delete(ref.collection('gastos').doc(id)); await b.commit();
+    toast('Gasto eliminado');
+  } catch (e) { toast('No se pudo eliminar (' + (e.code || e.message) + ')'); }
+}
+
+/* ───────── Pagos ───────── */
+function abrirPago(gid, key, ym){
+  const g = S.gastos.find(x => x.id === gid); if (!g) return;
+  const fecha = Core.fechaDe(g, ym) || g.fecha;
+  const v = hoja('<h3>Pagar “' + esc(g.nombre) + '”</h3><div class="mini">Vence ' + fechaCorta(fecha) + '. Confirmá o corregí el monto real.</div>' +
+    '<label class="f">Monto pagado (' + (g.moneda === 'USD' ? 'US$' : '$') + ')</label><input class="in" id="pMonto" inputmode="decimal" value="' + esc(g.monto) + '">' +
+    '<div id="pErr" class="err oculto"></div><div class="acc"><button class="btn sec" data-r="x">Cancelar</button><button class="btn" data-r="ok">Confirmar pago</button></div>');
+  v.addEventListener('click', async e => {
+    const b = e.target.closest('[data-r]'); if (!b) return;
+    if (b.dataset.r === 'x') return v.remove();
+    const m = Core.parseMonto($('#pMonto', v).value);
+    if (isNaN(m) || m < 0) { const er = $('#pErr', v); er.textContent = 'Escribí el monto con números.'; er.classList.remove('oculto'); return; }
+    try {
+      await db.collection('hogares').doc(S.hid).collection('pagos').doc(key).set({
+        gastoId: g.id, nombreGasto: g.nombre, mes: ym, fecha: Core.hoy(), monto: m, moneda: g.moneda || 'ARS',
+        porUid: S.user.uid, porNombre: (S.user.displayName || S.user.email || '').split(' ')[0], ts: FV.serverTimestamp()
+      });
+      v.remove(); toast('Pagado ✓');
+    } catch (er) { toast('No se pudo registrar (' + (er.code || er.message) + ')'); logError(er.message, er.stack); }
+  });
+}
+async function deshacerPago(key){
+  if (!(await preguntar('¿Deshacer este pago?', 'Deshacer'))) return;
+  try { await db.collection('hogares').doc(S.hid).collection('pagos').doc(key).delete(); toast('Pago deshecho'); } catch (e) { toast('No se pudo (' + (e.code || e.message) + ')'); }
+}
+
+/* ───────── Avisos push ───────── */
+async function activarAvisos(){
+  try {
+    if (!('Notification' in window)) return toast('Este navegador no soporta avisos');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { render(); return toast('No diste permiso para los avisos'); }
+    if (!(firebase.messaging.isSupported && firebase.messaging.isSupported())) return toast('Este navegador no soporta avisos');
+    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    await navigator.serviceWorker.ready;
+    const token = await firebase.messaging().getToken({vapidKey: VAPID_KEY, serviceWorkerRegistration: reg});
+    if (!token) return toast('No se pudo activar los avisos');
+    await db.collection('usuarios').doc(S.user.uid).set({fcmTokens: FV.arrayUnion(token)}, {merge: true});
+    toast('Avisos activados ✓'); render();
+  } catch (e) { toast('No se pudo activar (' + (e.code || e.message) + ')'); logError(e.message, e.stack); }
+}
+try { if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(() => {});
+  if (firebase.messaging.isSupported && firebase.messaging.isSupported()) firebase.messaging().onMessage(m => { const n = m.notification || {}; toast((n.title || '') + ' ' + (n.body || ''), 6000); });
+} } catch (e) {}
+
+/* ───────── Backup ───────── */
+const jsonReplacer = (k, v) => (v && typeof v === 'object' && typeof v.toMillis === 'function') ? {_ts: v.toMillis()} : v;
+const jsonReviver = (k, v) => (v && typeof v === 'object' && v._ts !== undefined && Object.keys(v).length === 1) ? TS.fromMillis(v._ts) : v;
+function datosBackup(){ return {app: 'gastar', version: VERSION, hogar: S.hid, nombre: S.hogar && S.hogar.nombre, fecha: new Date().toISOString(), gastos: S.gastos, pagos: Array.from(S.pagos.values())}; }
+function backupDiario(){
+  try {
+    const key = 'gastar-bk-' + S.hid, hoy = Core.hoy();
+    const o = JSON.parse(localStorage.getItem(key) || '{}');
+    if (o[hoy]) return;
+    o[hoy] = JSON.stringify(datosBackup(), jsonReplacer);
+    Object.keys(o).sort().slice(0, -7).forEach(k => delete o[k]);
+    localStorage.setItem(key, JSON.stringify(o));
+  } catch (e) {}
+}
+function bajarBackup(){
+  const blob = new Blob([JSON.stringify(datosBackup(), jsonReplacer, 2)], {type: 'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'gastar-backup-' + Core.hoy() + '.json';
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+async function restaurarBackup(file){
+  try {
+    const o = JSON.parse(await file.text(), jsonReviver);
+    if (o.app !== 'gastar' || !Array.isArray(o.gastos)) return toast('Ese archivo no es una copia de GastAr');
+    if (!(await preguntar('Se van a cargar ' + o.gastos.length + ' gastos y ' + (o.pagos || []).length + ' pagos. No se borra nada de lo que ya tenés. ¿Seguir?', 'Restaurar'))) return;
+    const ref = db.collection('hogares').doc(S.hid);
+    const items = o.gastos.map(g => ['gastos', g]).concat((o.pagos || []).map(p => ['pagos', p]));
+    for (let i = 0; i < items.length; i += 400) {
+      const b = db.batch();
+      items.slice(i, i + 400).forEach(([col, d]) => { const id = d.id, resto = Object.assign({}, d); delete resto.id; b.set(ref.collection(col).doc(id), resto, {merge: true}); });
+      await b.commit();
+    }
+    toast('Copia restaurada ✓');
+  } catch (e) { toast('No se pudo restaurar (' + (e.code || e.message) + ')'); }
+}
+
+/* ───────── Recorrido guiado (no guarda nada) ───────── */
+function recorrido(){
+  const pasos = [
+    ['👋 Bienvenido a GastAr', 'Acá ves y controlás todos los gastos del hogar. Lo comparten vos y tu pareja: lo que uno marca como pagado, el otro lo ve al instante.', ''],
+    ['➕ Cargá tus gastos una vez', 'Tocá el botón amarillo <b>+</b>. Poné nombre, monto y el día en que vence. Si se repite todos los meses (alquiler, luz, tarjeta) se carga una sola vez y GastAr lo repite solo.', ''],
+    ['🚦 Los colores del inicio', 'En el inicio ves los 8 vencimientos más cercanos. Los 2 más urgentes en rojo, después naranja, amarillo y verde para los que vienen más adelante.',
+      '<div class="tour-demo"><div class="venc c-red"><div class="ico">🏠</div><div class="main"><b>Alquiler</b><small>Vence mañana</small></div><div class="monto">$ 450.000</div></div><div class="venc c-org"><div class="ico">💡</div><div class="main"><b>Luz</b><small>Vence en 4 días</small></div><div class="monto">$ 38.000</div></div><div class="venc c-yel"><div class="ico">📱</div><div class="main"><b>Internet</b><small>Vence en 8 días</small></div><div class="monto">$ 22.000</div></div><div class="venc c-grn"><div class="ico">💳</div><div class="main"><b>Tarjeta</b><small>Vence en 14 días</small></div><div class="monto">$ 120.000</div></div></div>'],
+    ['✅ Marcá lo que pagás', 'Tocá <b>Pagar</b>, confirmá el monto real y listo. Si te equivocás, en la pestaña Gastos tocás el tilde para deshacerlo.', ''],
+    ['🔔 Avisos y pareja', 'En Ajustes activás los avisos del celular y le pasás el código a tu pareja para que se una a tu hogar.', '']
+  ];
+  let i = 0;
+  const v = hoja('<div id="tourC"></div>');
+  const pintar = () => {
+    const p = pasos[i];
+    $('#tourC', v).innerHTML = '<h3>' + p[0] + '</h3><p style="line-height:1.5;margin:0 0 10px">' + p[1] + '</p>' + p[2] +
+      '<div class="mini" style="text-align:center;margin:8px 0">' + (i + 1) + ' de ' + pasos.length + '</div><div class="acc"><button class="btn sec" data-r="x">' + (i ? 'Atrás' : 'Cerrar') + '</button><button class="btn" data-r="n">' + (i === pasos.length - 1 ? 'Listo' : 'Siguiente') + '</button></div>';
+  };
+  pintar();
+  v.addEventListener('click', e => {
+    const b = e.target.closest('[data-r]'); if (!b) return;
+    if (b.dataset.r === 'x') { if (i) { i--; pintar(); } else v.remove(); }
+    else { if (i < pasos.length - 1) { i++; pintar(); } else v.remove(); }
+  });
+}
+
+/* ───────── Panel admin oculto (solo botones) ───────── */
+async function abrirAdmin(){
+  const v = hoja('<h3>Admin · hogares</h3><div id="admL" class="mini">Cargando…</div><div class="acc"><button class="btn sec" data-r="x">Cerrar</button></div>');
+  const pintar = async () => {
+    try {
+      const q = await db.collection('hogares').get();
+      const hs = q.docs.map(d => Object.assign({id: d.id}, d.data())).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+      $('#admL', v).innerHTML = hs.map(h => {
+        let est;
+        if (h.demoHasta === null || h.demoHasta === undefined) est = '<b style="color:var(--ok)">Cliente</b>';
+        else { const d = Math.ceil((h.demoHasta.toMillis() - Date.now()) / 86400000); est = d > 0 ? 'Demo · ' + d + ' días' : '<b style="color:var(--red)">Vencida</b>'; }
+        return '<div class="card" style="margin-bottom:8px"><b>' + esc(h.nombre) + '</b><div class="mini">' + esc(h.ownerEmail || '') + ' · ' + (h.miembros || []).length + '/' + (h.limiteIntegrantes || LIMITE_INTEGRANTES) + ' integrantes</div><div style="margin:6px 0">' + est + '</div>' +
+          '<div class="fila" style="flex-wrap:wrap"><button class="btn chico" data-ad="7" data-h="' + esc(h.id) + '">+7 días</button><button class="btn chico" data-ad="30" data-h="' + esc(h.id) + '">+30 días</button><button class="btn chico" data-ad="cli" data-h="' + esc(h.id) + '">Pasar a cliente</button><button class="btn sec chico" data-ad="int" data-h="' + esc(h.id) + '">+1 integrante</button></div></div>';
+      }).join('') || 'Sin hogares todavía.';
+    } catch (e) { $('#admL', v).textContent = 'Error: ' + (e.code || e.message); }
+  };
+  pintar();
+  v.addEventListener('click', async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.r === 'x') return v.remove();
+    if (!b.dataset.ad) return;
+    const ref = db.collection('hogares').doc(b.dataset.h);
+    try {
+      if (b.dataset.ad === 'cli') await ref.update({demoHasta: null});
+      else if (b.dataset.ad === 'int') await ref.update({limiteIntegrantes: FV.increment(1)});
+      else { const s = await ref.get(), cur = s.data().demoHasta ? s.data().demoHasta.toMillis() : Date.now(); await ref.update({demoHasta: TS.fromMillis(Math.max(Date.now(), cur) + Number(b.dataset.ad) * 86400000)}); }
+      toast('Listo ✓'); pintar();
+    } catch (er) { toast('Error: ' + (er.code || er.message)); }
+  });
+}
+
+/* ───────── Eventos ───────── */
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-tab]'); if (t) { S.tab = t.dataset.tab; render(); window.scrollTo(0, 0); return; }
+  const b = e.target.closest('[data-a]'); if (!b) return;
+  const a = b.dataset.a;
+  if (a === 'google') ingresarGoogle();
+  else if (a === 'instalar') instalarApp();
+  else if (a === 'crear') crearHogar();
+  else if (a === 'unirse') unirseHogar();
+  else if (a === 'salir') { if (await preguntar('¿Cerrar sesión?', 'Cerrar sesión')) auth.signOut(); }
+  else if (a === 'tema') cambiarTema();
+  else if (a === 'nuevo') abrirGasto(null);
+  else if (a === 'editar') abrirGasto(b.dataset.g);
+  else if (a === 'pagar') abrirPago(b.dataset.g, b.dataset.k, b.dataset.m);
+  else if (a === 'despagar') deshacerPago(b.dataset.k);
+  else if (a === 'mes') { S.mes = Core.addMonths(S.mes, Number(b.dataset.n)); render(); }
+  else if (a === 'cat') { const c = b.dataset.c; S.abiertas.has(c) ? S.abiertas.delete(c) : S.abiertas.add(c); b.parentElement.classList.toggle('abierta'); }
+  else if (a === 'avisos') activarAvisos();
+  else if (a === 'tour') recorrido();
+  else if (a === 'ayuda') window.open('/ayuda/', '_blank');
+  else if (a === 'activar') window.open('https://wa.me/' + WA_VENTAS + '?text=' + encodeURIComponent('Hola! Quiero activar mi cuenta de GastAr. Mi correo: ' + (S.user.email || '') + ' · Hogar: ' + S.hid), '_blank');
+  else if (a === 'bk-bajar') bajarBackup();
+  else if (a === 'bk-subir') { const f = $('#bkFile'); f.onchange = () => { if (f.files[0]) restaurarBackup(f.files[0]); f.value = ''; }; f.click(); }
+  else if (a === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent('Te invito a nuestro hogar en GastAr. Entrá con tu Google desde este link y se une solo: ' + b.dataset.l), '_blank');
+  else if (a === 'copiar') { try { await navigator.clipboard.writeText(b.dataset.l); toast('Link copiado'); } catch (er) { toast(b.dataset.l, 8000); } }
+  else if (a === 'renombrar') {
+    const v = hoja('<h3>Nombre del hogar</h3><input class="in" id="rnN" maxlength="60" value="' + esc(S.hogar.nombre) + '"><div class="acc"><button class="btn sec" data-r="x">Cancelar</button><button class="btn" data-r="ok">Guardar</button></div>');
+    v.addEventListener('click', async ev => { const r = ev.target.closest('[data-r]'); if (!r) return; if (r.dataset.r === 'ok') { const n = $('#rnN', v).value.trim(); if (n) { try { await db.collection('hogares').doc(S.hid).update({nombre: n.slice(0, 60)}); } catch (er) { toast('No se pudo (' + (er.code || er.message) + ')'); } } } v.remove(); });
+  }
+  else if (a === 'nuevocodigo') {
+    if (!(await preguntar('El código anterior deja de servir. ¿Generar uno nuevo?', 'Generar'))) return;
+    try {
+      const cod = generarCodigo(), ref = db.collection('hogares').doc(S.hid), viejo = S.hogar.codigoActual, bt = db.batch();
+      bt.set(db.collection('invitaciones').doc(cod), {hogarId: S.hid, ownerUid: S.user.uid, creado: FV.serverTimestamp()});
+      bt.update(ref, {codigoActual: cod}); if (viejo) bt.delete(db.collection('invitaciones').doc(viejo));
+      await bt.commit(); toast('Código nuevo listo');
+    } catch (er) { toast('No se pudo (' + (er.code || er.message) + ')'); }
+  }
+  else if (a === 'quitar') {
+    if (!(await preguntar('¿Quitar a esta persona del hogar?', 'Quitar', true))) return;
+    try { const u = b.dataset.u; await db.collection('hogares').doc(S.hid).update({miembros: FV.arrayRemove(u), ['integrantes.' + u]: FV.delete()}); toast('Integrante quitado'); } catch (er) { toast('No se pudo (' + (er.code || er.message) + ')'); }
+  }
+  else if (a === 'irse') {
+    if (!(await preguntar('¿Salir de este hogar? Dejás de ver sus gastos.', 'Salir', true))) return;
+    try { const u = S.user.uid; await db.collection('hogares').doc(S.hid).update({miembros: FV.arrayRemove(u), ['integrantes.' + u]: FV.delete()}); await db.collection('usuarios').doc(u).set({hogarId: null}, {merge: true}); location.reload(); } catch (er) { toast('No se pudo (' + (er.code || er.message) + ')'); }
+  }
+});
+
+window.__gastar = {Core, S, money, CATS};
+</script>
+</body>
+</html>

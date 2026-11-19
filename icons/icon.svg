@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#0F766E"/>
+  <!-- casa -->
+  <polygon points="256,118 376,222 136,222" fill="#FFFFFF"/>
+  <rect x="158" y="218" width="196" height="140" rx="10" fill="#FFFFFF"/>
+  <rect x="236" y="280" width="40" height="78" rx="6" fill="#134E4A"/>
+  <rect x="180" y="244" width="38" height="38" rx="6" fill="#134E4A"/>
+  <!-- moneda -->
+  <circle cx="338" cy="336" r="62" fill="#FBBF24" stroke="#0F766E" stroke-width="12"/>
+  <text x="338" y="364" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="82" text-anchor="middle" fill="#134E4A">$</text>
+</svg>

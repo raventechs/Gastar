@@ -1,0 +1,108 @@
+// GastAr — reglas de Firestore (v1.0.0 · 2026-11-18)
+// Pegar COMPLETO en Firebase > Firestore Database > Reglas > Publicar.
+// Todo cerrado por defecto. Cada hogar solo ve lo suyo. El cliente no puede cambiar demoHasta ni limiteIntegrantes.
+// El administrador se reconoce por un documento en la colección "admins" cuyo ID es su UID (se crea a mano en la consola).
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    function hog(hid) { return get(/databases/$(database)/documents/hogares/$(hid)).data; }
+    function esMiembro(hid) { return signedIn() && request.auth.uid in hog(hid).miembros; }
+    // Prueba vigente o cliente (demoHasta null/ausente). Con la prueba vencida no se escribe, pero los datos se conservan.
+    function activo(hid) { return hog(hid).get('demoHasta', null) == null || hog(hid).get('demoHasta', null) > request.time; }
+
+    function validGasto() {
+      let d = request.resource.data;
+      return d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 80
+        && d.monto is number && d.monto >= 0
+        && d.get('moneda', 'ARS') in ['ARS', 'USD']
+        && d.tipo in ['fijo', 'unico']
+        && d.categoria is string;
+    }
+
+    // Quién es admin: solo cada uno puede leer su propio documento; se crean desde la consola.
+    match /admins/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /usuarios/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'nombre', 'ult', 'hogarId', 'fcmTokens'])
+        && (!('fcmTokens' in request.resource.data) || request.resource.data.fcmTokens.size() <= 10);
+    }
+
+    // Códigos de invitación: se lee uno solo si se conoce el código (no se puede listar).
+    match /invitaciones/{cod} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['hogarId', 'ownerUid', 'creado'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/hogares/$(request.resource.data.hogarId)).data.ownerUid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /hogares/{hid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid in resource.data.miembros);
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['nombre', 'ownerUid', 'ownerEmail', 'miembros', 'integrantes', 'codigoActual', 'limiteIntegrantes', 'demoHasta', 'creado', 'version'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.miembros == [request.auth.uid]
+        && request.resource.data.limiteIntegrantes == 2
+        && request.resource.data.nombre is string && request.resource.data.nombre.size() <= 60
+        && request.resource.data.demoHasta is timestamp
+        && request.resource.data.demoHasta <= request.time + duration.value(15, 'd');
+
+      allow update: if signedIn() && (
+        // Administrador: puede cambiar demoHasta, limiteIntegrantes, etc.
+        isAdmin()
+        // Titular: nombre, código y quitar integrantes
+        || (resource.data.ownerUid == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 'codigoActual', 'miembros', 'integrantes'])
+            && request.resource.data.nombre is string && request.resource.data.nombre.size() <= 60
+            && request.auth.uid in request.resource.data.miembros
+            && request.resource.data.miembros.toSet().difference(resource.data.miembros.toSet()).size() == 0)
+        // Integrante que sale del hogar
+        || (request.auth.uid in resource.data.miembros
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['miembros', 'integrantes'])
+            && request.resource.data.miembros == resource.data.miembros.removeAll([request.auth.uid]))
+        // Persona que se une con un código válido y hay lugar en el plan
+        || (!(request.auth.uid in resource.data.miembros)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['miembros', 'integrantes', 'joinCode'])
+            && request.resource.data.miembros == resource.data.miembros.concat([request.auth.uid])
+            && request.resource.data.miembros.size() <= resource.data.get('limiteIntegrantes', 2)
+            && request.resource.data.integrantes.diff(resource.data.integrantes).affectedKeys().hasOnly([request.auth.uid])
+            && exists(/databases/$(database)/documents/invitaciones/$(request.resource.data.joinCode))
+            && get(/databases/$(database)/documents/invitaciones/$(request.resource.data.joinCode)).data.hogarId == hid)
+      );
+
+      match /gastos/{gid} {
+        allow read: if isAdmin() || esMiembro(hid);
+        allow create, update: if esMiembro(hid) && activo(hid) && validGasto();
+        allow delete: if esMiembro(hid) && activo(hid);
+      }
+
+      match /pagos/{pid} {
+        allow read: if isAdmin() || esMiembro(hid);
+        allow create, update: if esMiembro(hid) && activo(hid)
+          && request.resource.data.gastoId is string
+          && request.resource.data.monto is number && request.resource.data.monto >= 0;
+        allow delete: if esMiembro(hid) && activo(hid);
+      }
+
+      // Registro de avisos enviados: solo lo usa el servidor (Admin SDK, que no pasa por estas reglas).
+      match /avisos/{aid} {
+        allow read, write: if false;
+      }
+    }
+
+    // Registro de errores de la app: cualquiera logueado crea, solo el admin lee.
+    match /errores/{id} {
+      allow create: if signedIn() && request.resource.data.keys().hasOnly(['app', 'v', 'msg', 'stack', 'uid', 'ua', 'ts']);
+      allow read: if isAdmin();
+    }
+  }
+}
