@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
   GastAr — gastos del hogar, compartidos y con avisos
-  Versión: 1.3.0
+  Versión: 1.3.1
   Fecha: 2026-11-18
   Changelog:
+    1.3.1 — Colores por días que faltan: rojo (vencido o 1 día), naranja (2 a 5), amarillo (6 a 8), verde (9 o más).
     1.3.0 — Inicio muestra solo lo que vence en los próximos 31 días (más lo vencido); los gastos de una sola vez con fecha lejana sí se muestran. Historial de pagos (se conserva aunque se borre el gasto).
     1.2.1 — El menú admin oculto (5 toques al logo) reconoce al administrador por su mail (rgaraventa@gmail.com), sin crear documentos a mano.
     1.2.0 — Plan personal (1 persona) y Plus grupo familiar (hasta 5), activables desde el menú admin oculto; ID de cuenta visible en Ajustes para dar de alta al administrador.
@@ -194,7 +195,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10p
 <script src="demo.js"></script>
 <script>
 /* ═══════════════ CONFIG (se completa una sola vez) ═══════════════ */
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBlftKE_pqK6afzv1pe8PS58sYlb2Z93Uk',
   authDomain: 'charlar-e5408.firebaseapp.com',
@@ -287,6 +288,7 @@ const Core = {
     return out.sort((a, b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
   },
   /* Color por posición en la lista de 8: 2 rojo, 2 naranja, 2 amarillo, 2 verde. */
+  colorDias(d){ return d <= 1 ? 'c-red' : d <= 5 ? 'c-org' : d <= 8 ? 'c-yel' : 'c-grn'; },
   colorPos(i){ return ['c-red', 'c-red', 'c-org', 'c-org', 'c-yel', 'c-yel', 'c-grn', 'c-grn'][i] || 'c-grn'; },
   cuando(diff){
     if (diff < -1) return 'Vencido hace ' + (-diff) + ' días';
@@ -540,21 +542,21 @@ function vInicio(){
   h += avisoPush();
   h += '<h2>Próximos vencimientos</h2>';
   if (!S.cargado.gastos) return h + '<div class="vacio">Cargando…</div>';
-  const pend = Core.pendientes(S.gastos, S.pagos, hoy).slice(0, 8);
+  const pend = Core.pendientes(S.gastos, S.pagos, hoy);
   if (!S.gastos.length) {
     h += '<div class="card vacio">Todavía no cargaste gastos.<br>Tocá el <b>+</b> para agregar el primero: alquiler, luz, tarjeta…<br><br><button class="btn sec" data-a="tour">Ver cómo funciona</button></div>';
   } else if (!pend.length) {
     h += '<div class="card vacio">🎉 No tenés vencimientos pendientes.</div>';
   } else {
     h += pend.map((o, i) => cardVenc(o, i, hoy)).join('');
-    h += '<div class="mini" style="text-align:center">Se muestran los vencimientos de los próximos 31 días · rojo: lo más urgente</div>';
+    h += '<div class="mini" style="text-align:center">Próximos 31 días · 🔴 vencido o 1 día · 🟠 2 a 5 · 🟡 6 a 8 · 🟢 9 o más</div>';
   }
   h += '<div style="margin-top:14px"><button class="btn sec full" data-a="historial">🧾 Historial de pagos</button></div>';
   return h;
 }
 function cardVenc(o, i, hoy){
   const diff = Core.diffDays(o.fecha, hoy), c = catDe(o.g.categoria);
-  return '<div class="venc ' + Core.colorPos(i) + '"><div class="ico">' + c.e + '</div>' +
+  return '<div class="venc ' + Core.colorDias(diff) + '"><div class="ico">' + c.e + '</div>' +
     '<div class="main" data-a="editar" data-g="' + esc(o.g.id) + '"><b>' + esc(o.g.nombre) + '</b><small>' + Core.cuando(diff) + ' · ' + fechaCorta(o.fecha) + '</small></div>' +
     '<div class="monto">' + money(o.g.monto, o.g.moneda) + '</div>' +
     '<button class="btn" data-a="pagar" data-k="' + esc(o.key) + '" data-g="' + esc(o.g.id) + '" data-m="' + o.ym + '">Pagar</button></div>';
@@ -832,7 +834,7 @@ function recorrido(){
   const pasos = [
     ['👋 Bienvenido a GastAr', 'Acá ves y controlás todos los gastos del hogar. Lo comparten vos y tu pareja: lo que uno marca como pagado, el otro lo ve al instante.', ''],
     ['➕ Cargá tus gastos una vez', 'Tocá el botón amarillo <b>+</b>. Poné nombre, monto y el día en que vence. Si se repite todos los meses (alquiler, luz, tarjeta) se carga una sola vez y GastAr lo repite solo.', ''],
-    ['🚦 Los colores del inicio', 'En el inicio ves los 8 vencimientos más cercanos. Los 2 más urgentes en rojo, después naranja, amarillo y verde para los que vienen más adelante.',
+    ['🚦 Los colores del inicio', 'En el inicio ves los vencimientos de los próximos 31 días. Rojo: vencido o falta 1 día. Naranja: 2 a 5 días. Amarillo: 6 a 8 días. Verde: 9 días o más.',
       '<div class="tour-demo"><div class="venc c-red"><div class="ico">🏠</div><div class="main"><b>Alquiler</b><small>Vence mañana</small></div><div class="monto">$ 450.000</div></div><div class="venc c-org"><div class="ico">💡</div><div class="main"><b>Luz</b><small>Vence en 4 días</small></div><div class="monto">$ 38.000</div></div><div class="venc c-yel"><div class="ico">📱</div><div class="main"><b>Internet</b><small>Vence en 8 días</small></div><div class="monto">$ 22.000</div></div><div class="venc c-grn"><div class="ico">💳</div><div class="main"><b>Tarjeta</b><small>Vence en 14 días</small></div><div class="monto">$ 120.000</div></div></div>'],
     ['✅ Marcá lo que pagás', 'Tocá <b>Pagar</b>, confirmá el monto real y listo. Si te equivocás, en la pestaña Gastos tocás el tilde para deshacerlo.', ''],
     ['🔔 Avisos y pareja', 'En Ajustes activás los avisos del celular. Con el Plus grupo familiar (hasta 5 personas) también podés pasarle un código a tu pareja o familia para que se una a tu hogar.', '']
