@@ -8,12 +8,12 @@ importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-com
 
 const SW_VERSION = 'gastar-sw-1.0.0';
 firebase.initializeApp({
-  apiKey: 'PEGAR_API_KEY',
-  authDomain: 'PEGAR_PROJECT_ID.firebaseapp.com',
-  projectId: 'PEGAR_PROJECT_ID',
-  storageBucket: 'PEGAR_PROJECT_ID.appspot.com',
-  messagingSenderId: 'PEGAR_SENDER_ID',
-  appId: 'PEGAR_APP_ID'
+  apiKey: 'AIzaSyBlftKE_pqK6afzv1pe8PS58sYlb2Z93Uk',
+  authDomain: 'charlar-e5408.firebaseapp.com',
+  projectId: 'charlar-e5408',
+  storageBucket: 'charlar-e5408.firebasestorage.app',
+  messagingSenderId: '471550179133',
+  appId: '1:471550179133:web:3c06e945f81eb9fd477754'
 });
 // Con payload "notification", FCM muestra el aviso solo; este objeto lo deja listo.
 firebase.messaging();
