@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
   GastAr — gastos del hogar, compartidos y con avisos
-  Versión: 1.2.1
+  Versión: 1.3.0
   Fecha: 2026-11-18
   Changelog:
+    1.3.0 — Inicio muestra solo lo que vence en los próximos 31 días (más lo vencido); los gastos de una sola vez con fecha lejana sí se muestran. Historial de pagos (se conserva aunque se borre el gasto).
     1.2.1 — El menú admin oculto (5 toques al logo) reconoce al administrador por su mail (rgaraventa@gmail.com), sin crear documentos a mano.
     1.2.0 — Plan personal (1 persona) y Plus grupo familiar (hasta 5), activables desde el menú admin oculto; ID de cuenta visible en Ajustes para dar de alta al administrador.
     1.1.0 — Importancia obligatoria al cargar un gasto (Fijo/esencial, Opcional, Innecesario), etiqueta en cada gasto y resumen por importancia en Inicio y Gastos.
@@ -193,7 +194,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10p
 <script src="demo.js"></script>
 <script>
 /* ═══════════════ CONFIG (se completa una sola vez) ═══════════════ */
-const VERSION = '1.2.1';
+const VERSION = '1.3.0';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBlftKE_pqK6afzv1pe8PS58sYlb2Z93Uk',
   authDomain: 'charlar-e5408.firebaseapp.com',
@@ -253,6 +254,7 @@ const Core = {
     const [y, m] = ym.split('-').map(Number);
     return ym + '-' + pad(Math.min(Number(g.dia) || 1, Core.dim(y, m)));
   },
+  sumarDias(f, n){ const [y, m, d] = f.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + n)); return t.getUTCFullYear() + '-' + pad(t.getUTCMonth() + 1) + '-' + pad(t.getUTCDate()); },
   clave(g, ym){ return g.tipo === 'unico' ? g.id + '_u' : g.id + '_' + ym; },
   /* Ocurrencias de gastos para una lista de meses. */
   ocurrencias(gastos, pagos, meses){
@@ -275,9 +277,10 @@ const Core = {
   pendientes(gastos, pagos, hoy){
     const cur = hoy.slice(0, 7);
     const meses = [-2, -1, 0, 1, 2, 3].map(n => Core.addMonths(cur, n));
-    const out = Core.ocurrencias(gastos, pagos, meses).filter(o => !o.pago);
+    const lim = Core.sumarDias(hoy, 31);
+    const out = Core.ocurrencias(gastos, pagos, meses).filter(o => !o.pago && (o.g.tipo === 'unico' || o.fecha <= lim));
     for (const g of gastos) {
-      if (g.tipo === 'unico' && g.fecha && g.fecha.slice(0, 7) < meses[0] && !pagos.get(Core.clave(g, g.fecha.slice(0, 7)))) {
+      if (g.tipo === 'unico' && g.fecha && (g.fecha.slice(0, 7) < meses[0] || g.fecha.slice(0, 7) > meses[5]) && !pagos.get(Core.clave(g, g.fecha.slice(0, 7)))) {
         out.push({g, ym: g.fecha.slice(0, 7), fecha: g.fecha, key: Core.clave(g, g.fecha.slice(0, 7)), pago: null});
       }
     }
@@ -544,8 +547,9 @@ function vInicio(){
     h += '<div class="card vacio">🎉 No tenés vencimientos pendientes.</div>';
   } else {
     h += pend.map((o, i) => cardVenc(o, i, hoy)).join('');
-    h += '<div class="mini" style="text-align:center">Rojo: lo más urgente · verde: lo que viene más adelante</div>';
+    h += '<div class="mini" style="text-align:center">Se muestran los vencimientos de los próximos 31 días · rojo: lo más urgente</div>';
   }
+  h += '<div style="margin-top:14px"><button class="btn sec full" data-a="historial">🧾 Historial de pagos</button></div>';
   return h;
 }
 function cardVenc(o, i, hoy){
@@ -570,6 +574,7 @@ function vGastos(){
   h += '<div class="card" style="margin-bottom:12px"><div class="kv"><span>Falta pagar</span><b>' + money(t.ARS.pend, 'ARS') + (t.USD.pend ? ' + ' + money(t.USD.pend, 'USD') : '') + '</b></div>' +
        '<div class="kv"><span>Ya pagado</span><b>' + money(t.ARS.pag, 'ARS') + (t.USD.pag ? ' + ' + money(t.USD.pag, 'USD') : '') + '</b></div></div>';
   if (!S.cargado.gastos) return h + '<div class="vacio">Cargando…</div>';
+  h += '<div style="margin-bottom:12px"><button class="btn sec full" data-a="historial">🧾 Historial de pagos</button></div>';
   h += tarjetaImportancia(ocs);
   if (!ocs.length) return h + '<div class="card vacio">No hay gastos este mes.<br>Tocá <b>+</b> para agregar.</div>';
   if (S.abiertasInit !== S.mes) { S.abiertasInit = S.mes; S.abiertas = new Set(ocs.filter(o => !o.pago).map(o => catDe(o.g.categoria).id)); }
@@ -682,7 +687,7 @@ function abrirGasto(id){
     if (sg) { const p = sg.parentElement; p.querySelectorAll('button').forEach(b => b.classList.remove('on')); sg.classList.add('on'); if (p.id === 'gImp') formG.imp = sg.dataset.v; else if (p.id === 'gMon') formG.moneda = sg.dataset.v; else { formG.tipo = sg.dataset.v; ajustar(); } return; }
     const b = e.target.closest('[data-r]'); if (!b) return;
     if (b.dataset.r === 'x') return v.remove();
-    if (b.dataset.r === 'del') { if (await preguntar('¿Eliminar “' + g.nombre + '” y su historial de pagos?', 'Eliminar', true)) { await eliminarGasto(g.id); v.remove(); } return; }
+    if (b.dataset.r === 'del') { if (await preguntar('¿Eliminar “' + g.nombre + '”? Los pagos que ya hiciste quedan en el historial.', 'Eliminar', true)) { await eliminarGasto(g.id); v.remove(); } return; }
     await guardarGasto(v, g);
   });
 }
@@ -718,8 +723,7 @@ async function guardarGasto(v, g){
 async function eliminarGasto(id){
   try {
     const ref = db.collection('hogares').doc(S.hid);
-    const ps = await ref.collection('pagos').where('gastoId', '==', id).get();
-    const b = db.batch(); ps.docs.forEach(d => b.delete(d.ref)); b.delete(ref.collection('gastos').doc(id)); await b.commit();
+    await ref.collection('gastos').doc(id).delete();   // los pagos quedan en el historial
     toast('Gasto eliminado');
   } catch (e) { toast('No se pudo eliminar (' + (e.code || e.message) + ')'); }
 }
@@ -744,6 +748,24 @@ function abrirPago(gid, key, ym){
       v.remove(); toast('Pagado ✓');
     } catch (er) { toast('No se pudo registrar (' + (er.code || er.message) + ')'); logError(er.message, er.stack); }
   });
+}
+function abrirHistorial(){
+  const l = Array.from(S.pagos.values()).sort((a, b) => (b.fecha || '') < (a.fecha || '') ? -1 : (b.fecha || '') > (a.fecha || '') ? 1 : 0);
+  let h = '<h3>Historial de pagos</h3>';
+  if (!l.length) h += '<div class="mini">Todavía no registraste pagos. Cuando toques “Pagar”, queda guardado acá.</div>';
+  else {
+    const grupos = {};
+    l.forEach(p => { const k = (p.fecha || p.mes || '').slice(0, 7); (grupos[k] = grupos[k] || []).push(p); });
+    Object.keys(grupos).sort().reverse().forEach(k => {
+      const ars = grupos[k].filter(p => (p.moneda || 'ARS') === 'ARS').reduce((a, p) => a + (Number(p.monto) || 0), 0);
+      h += '<div class="mini" style="margin-top:12px"><b>' + esc(nombreMes(k)) + '</b> · pagado ' + money(ars, 'ARS') + '</div>';
+      grupos[k].forEach(p => {
+        h += '<div class="row pagado"><div class="main"><b>' + esc(p.nombreGasto || 'Gasto') + '</b><small>Pagado ' + fechaCorta(p.fecha || p.mes + '-01') + (p.mes ? ' · corresponde a ' + esc(nombreMes(p.mes)) : '') + (p.porNombre ? ' · ' + esc(p.porNombre) : '') + '</small></div><div class="monto">' + money(p.monto, p.moneda) + '</div></div>';
+      });
+    });
+  }
+  const v = hoja(h + '<div class="acc"><button class="btn sec" data-r="x">Cerrar</button></div>');
+  v.addEventListener('click', e => { if (e.target.closest('[data-r="x"]')) v.remove(); });
 }
 async function deshacerPago(key){
   if (!(await preguntar('¿Deshacer este pago?', 'Deshacer'))) return;
@@ -877,6 +899,7 @@ document.addEventListener('click', async e => {
   else if (a === 'editar') abrirGasto(b.dataset.g);
   else if (a === 'pagar') abrirPago(b.dataset.g, b.dataset.k, b.dataset.m);
   else if (a === 'despagar') deshacerPago(b.dataset.k);
+  else if (a === 'historial') abrirHistorial();
   else if (a === 'mes') { S.mes = Core.addMonths(S.mes, Number(b.dataset.n)); render(); }
   else if (a === 'cat') { const c = b.dataset.c; S.abiertas.has(c) ? S.abiertas.delete(c) : S.abiertas.add(c); b.parentElement.classList.toggle('abierta'); }
   else if (a === 'avisos') activarAvisos();
