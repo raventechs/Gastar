@@ -1,6 +1,6 @@
-// GastAr — reglas de Firestore (v1.0.1 · 2026-11-18)
+// GastAr — reglas de Firestore (v1.0.2 · 2026-11-18)
 // Pegar COMPLETO en Firebase > Firestore Database > Reglas > Publicar.
-// Todo cerrado por defecto. Cada hogar solo ve lo suyo. El cliente no puede cambiar demoHasta ni limiteIntegrantes.
+// Todo cerrado por defecto. Cada hogar solo ve lo suyo. El cliente no puede cambiar demoHasta ni limiteIntegrantes (1 = personal; el administrador lo pasa a 5 con el Plus grupo familiar).
 // El administrador se reconoce por un documento en la colección "admins" cuyo ID es su UID (se crea a mano en la consola).
 rules_version = '2';
 service cloud.firestore {
@@ -55,7 +55,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['nombre', 'ownerUid', 'ownerEmail', 'miembros', 'integrantes', 'codigoActual', 'limiteIntegrantes', 'demoHasta', 'creado', 'version'])
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.miembros == [request.auth.uid]
-        && request.resource.data.limiteIntegrantes == 2
+        && request.resource.data.limiteIntegrantes == 1
         && request.resource.data.nombre is string && request.resource.data.nombre.size() <= 60
         && request.resource.data.demoHasta is timestamp
         && request.resource.data.demoHasta <= request.time + duration.value(15, 'd');
@@ -77,7 +77,7 @@ service cloud.firestore {
         || (!(request.auth.uid in resource.data.miembros)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['miembros', 'integrantes', 'joinCode'])
             && request.resource.data.miembros == resource.data.miembros.concat([request.auth.uid])
-            && request.resource.data.miembros.size() <= resource.data.get('limiteIntegrantes', 2)
+            && request.resource.data.miembros.size() <= resource.data.get('limiteIntegrantes', 1)
             && request.resource.data.integrantes.diff(resource.data.integrantes).affectedKeys().hasOnly([request.auth.uid])
             && exists(/databases/$(database)/documents/invitaciones/$(request.resource.data.joinCode))
             && get(/databases/$(database)/documents/invitaciones/$(request.resource.data.joinCode)).data.hogarId == hid)

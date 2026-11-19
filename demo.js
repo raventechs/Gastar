@@ -61,10 +61,11 @@
   /* Datos de ejemplo */
   const hoy = new Date(), ym = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   const cur = ym(hoy), prox = ym(new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1));
+  store.set('admins/demo', {activo: true});
   store.set('usuarios/demo', {hogarId: 'hdemo'});
   store.set('invitaciones/DEMO2345', {hogarId: 'hdemo', ownerUid: 'demo'});
   store.set('hogares/hdemo', {nombre: 'Casa de Ruben', ownerUid: 'demo', ownerEmail: 'demo@gastar.app', miembros: ['demo'],
-    integrantes: {demo: {nombre: 'Ruben (demo)', email: 'demo@gastar.app'}}, codigoActual: 'DEMO2345', limiteIntegrantes: 2,
+    integrantes: {demo: {nombre: 'Ruben (demo)', email: 'demo@gastar.app'}}, codigoActual: 'DEMO2345', limiteIntegrantes: 5,
     demoHasta: Ts.fromMillis(Date.now() + 14 * 86400000), creado: Ts.now(), version: 1});
   const G = [
     ['Tarjeta Visa', 'deudas', 184500, 'ARS', -3, 920000], ['Expensas', 'hogar', 92000, 'ARS', -1], ['Luz', 'servicios', 38400, 'ARS', 1],

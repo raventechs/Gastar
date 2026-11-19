@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
   GastAr — gastos del hogar, compartidos y con avisos
-  Versión: 1.1.0
+  Versión: 1.2.0
   Fecha: 2026-11-18
   Changelog:
+    1.2.0 — Plan personal (1 persona) y Plus grupo familiar (hasta 5), activables desde el menú admin oculto; ID de cuenta visible en Ajustes para dar de alta al administrador.
     1.1.0 — Importancia obligatoria al cargar un gasto (Fijo/esencial, Opcional, Innecesario), etiqueta en cada gasto y resumen por importancia en Inicio y Gastos.
     1.0.0 — Primera versión: hogar compartido por código, vencimientos fijos mensuales y únicos,
             inicio con 8 próximos vencimientos (2 rojo, 2 naranja, 2 amarillo, 2 verde),
@@ -191,7 +192,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10p
 <script src="demo.js"></script>
 <script>
 /* ═══════════════ CONFIG (se completa una sola vez) ═══════════════ */
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBlftKE_pqK6afzv1pe8PS58sYlb2Z93Uk',
   authDomain: 'charlar-e5408.firebaseapp.com',
@@ -203,7 +204,8 @@ const FIREBASE_CONFIG = {
 const VAPID_KEY = 'PEGAR_CLAVE_VAPID_PUBLICA';      // Firebase > Cloud Messaging > Certificados push web
 const WA_VENTAS = '5490000000000';                   // WhatsApp de RavenTechs para activar cuentas (sin + ni espacios)
 const DIAS_DEMO = 14;
-const LIMITE_INTEGRANTES = 2;
+const LIMITE_INTEGRANTES = 1;   // plan personal
+const LIMITE_PLUS = 5;          // Plus: grupo familiar
 /* ═════════════════════════════════════════════════════════════════ */
 
 /* ───────── Utilidades ───────── */
@@ -601,9 +603,10 @@ function vAjustes(){
   const notif = ('Notification' in window) ? Notification.permission : 'no-soportado';
   return '<h2>Mi hogar</h2><div class="card"><div class="kv"><span>Nombre</span><span>' + esc(h.nombre) + (esDueno ? ' <button class="btn sec chico" data-a="renombrar">Editar</button>' : '') + '</span></div>' + lista +
     '<div class="mini" style="margin-top:8px">Integrantes: ' + (h.miembros || []).length + ' de ' + (h.limiteIntegrantes || LIMITE_INTEGRANTES) + '</div></div>' +
-    (esDueno ? '<h2>Invitar a mi pareja</h2><div class="card"><div class="mini" style="margin-bottom:8px">Pasale este código. Entra con su Google y ve los mismos gastos.</div><div class="codigo">' + esc(h.codigoActual || '') + '</div>' +
+    (esDueno && (h.limiteIntegrantes || LIMITE_INTEGRANTES) > 1 ? '<h2>Invitar al grupo familiar</h2><div class="card"><div class="mini" style="margin-bottom:8px">Pasale este código a quien quieras sumar (hasta ' + (h.limiteIntegrantes || LIMITE_INTEGRANTES) + ' personas en total). Entra con su Google y ve los mismos gastos.</div><div class="codigo">' + esc(h.codigoActual || '') + '</div>' +
       '<div class="acc"><button class="btn" data-a="wa" data-l="' + esc(link) + '">Enviar por WhatsApp</button><button class="btn sec" data-a="copiar" data-l="' + esc(link) + '">Copiar link</button></div>' +
-      '<div style="margin-top:10px"><button class="btn sec chico" data-a="nuevocodigo">Generar código nuevo</button></div></div>' : '') +
+      '<div style="margin-top:10px"><button class="btn sec chico" data-a="nuevocodigo">Generar código nuevo</button></div></div>' :
+     esDueno ? '<h2>Plan personal</h2><div class="card"><div class="mini">Estás en el plan personal: los gastos son solo tuyos. Con el <b>Plus grupo familiar</b> podés compartirlos con un invitado, tu pareja o tu familia (hasta ' + LIMITE_PLUS + ' personas).</div></div>' : '') +
     '<h2>Avisos</h2><div class="card"><div class="mini" style="margin-bottom:8px">Te avisamos 3 días antes, 1 día antes, el mismo día y cuando algo quedó vencido.</div>' +
       (notif === 'granted' ? '<div class="kv"><span>Avisos en este celular</span><b style="color:var(--ok)">Activados ✓</b></div><button class="btn sec chico" data-a="avisos">Volver a registrar este celular</button>' :
        notif === 'denied' ? '<div class="err">Los avisos están bloqueados. Activalos desde los permisos del navegador para este sitio.</div>' :
@@ -611,7 +614,7 @@ function vAjustes(){
        '<button class="btn full" data-a="avisos">Activar avisos en este celular</button>') + '</div>' +
     '<h2>Mis datos</h2><div class="card"><div class="acc" style="margin-top:0"><button class="btn sec" data-a="bk-bajar">Descargar copia</button><button class="btn sec" data-a="bk-subir">Restaurar copia</button></div><input type="file" id="bkFile" accept=".json,application/json" class="oculto"><div class="mini" style="margin-top:8px">Además se guarda una copia automática en este celular cada día (últimos 7 días).</div></div>' +
     '<h2>Ayuda</h2><div class="card"><div class="acc" style="margin-top:0"><button class="btn sec" data-a="tour">Recorrido guiado</button><button class="btn sec" data-a="ayuda">Instructivo</button></div></div>' +
-    '<h2>Cuenta</h2><div class="card"><div class="kv"><span>Ingresaste como</span><span>' + esc(u.email || '') + '</span></div><div class="acc"><button class="btn sec" data-a="tema">Cambiar tema</button><button class="btn sec" data-a="salir">Cerrar sesión</button></div>' +
+    '<h2>Cuenta</h2><div class="card"><div class="kv"><span>Ingresaste como</span><span>' + esc(u.email || '') + '</span></div><div class="kv"><span>ID de cuenta</span><button class="btn sec chico" data-a="copiar" data-l="' + esc(u.uid) + '">Copiar</button></div><div class="acc"><button class="btn sec" data-a="tema">Cambiar tema</button><button class="btn sec" data-a="salir">Cerrar sesión</button></div>' +
     (!esDueno ? '<div style="margin-top:10px"><button class="btn peli chico" data-a="irse">Salir de este hogar</button></div>' : '') + '</div>' +
     '<div class="pie">GastAr v' + VERSION + ' · RavenTechs</div>';
 }
@@ -807,7 +810,7 @@ function recorrido(){
     ['🚦 Los colores del inicio', 'En el inicio ves los 8 vencimientos más cercanos. Los 2 más urgentes en rojo, después naranja, amarillo y verde para los que vienen más adelante.',
       '<div class="tour-demo"><div class="venc c-red"><div class="ico">🏠</div><div class="main"><b>Alquiler</b><small>Vence mañana</small></div><div class="monto">$ 450.000</div></div><div class="venc c-org"><div class="ico">💡</div><div class="main"><b>Luz</b><small>Vence en 4 días</small></div><div class="monto">$ 38.000</div></div><div class="venc c-yel"><div class="ico">📱</div><div class="main"><b>Internet</b><small>Vence en 8 días</small></div><div class="monto">$ 22.000</div></div><div class="venc c-grn"><div class="ico">💳</div><div class="main"><b>Tarjeta</b><small>Vence en 14 días</small></div><div class="monto">$ 120.000</div></div></div>'],
     ['✅ Marcá lo que pagás', 'Tocá <b>Pagar</b>, confirmá el monto real y listo. Si te equivocás, en la pestaña Gastos tocás el tilde para deshacerlo.', ''],
-    ['🔔 Avisos y pareja', 'En Ajustes activás los avisos del celular y le pasás el código a tu pareja para que se una a tu hogar.', '']
+    ['🔔 Avisos y pareja', 'En Ajustes activás los avisos del celular. Con el Plus grupo familiar (hasta 5 personas) también podés pasarle un código a tu pareja o familia para que se una a tu hogar.', '']
   ];
   let i = 0;
   const v = hoja('<div id="tourC"></div>');
@@ -835,8 +838,8 @@ async function abrirAdmin(){
         let est;
         if (h.demoHasta === null || h.demoHasta === undefined) est = '<b style="color:var(--ok)">Cliente</b>';
         else { const d = Math.ceil((h.demoHasta.toMillis() - Date.now()) / 86400000); est = d > 0 ? 'Demo · ' + d + ' días' : '<b style="color:var(--red)">Vencida</b>'; }
-        return '<div class="card" style="margin-bottom:8px"><b>' + esc(h.nombre) + '</b><div class="mini">' + esc(h.ownerEmail || '') + ' · ' + (h.miembros || []).length + '/' + (h.limiteIntegrantes || LIMITE_INTEGRANTES) + ' integrantes</div><div style="margin:6px 0">' + est + '</div>' +
-          '<div class="fila" style="flex-wrap:wrap"><button class="btn chico" data-ad="7" data-h="' + esc(h.id) + '">+7 días</button><button class="btn chico" data-ad="30" data-h="' + esc(h.id) + '">+30 días</button><button class="btn chico" data-ad="cli" data-h="' + esc(h.id) + '">Pasar a cliente</button><button class="btn sec chico" data-ad="int" data-h="' + esc(h.id) + '">+1 integrante</button></div></div>';
+        return '<div class="card" style="margin-bottom:8px"><b>' + esc(h.nombre) + '</b><div class="mini">' + esc(h.ownerEmail || '') + ' · ' + (h.miembros || []).length + '/' + (h.limiteIntegrantes || LIMITE_INTEGRANTES) + ' integrantes</div><div style="margin:6px 0">' + est + ' · ' + ((h.limiteIntegrantes || LIMITE_INTEGRANTES) > 1 ? '<b>Plus familiar</b>' : 'Personal') + '</div>' +
+          '<div class="fila" style="flex-wrap:wrap"><button class="btn chico" data-ad="7" data-h="' + esc(h.id) + '">+7 días</button><button class="btn chico" data-ad="30" data-h="' + esc(h.id) + '">+30 días</button><button class="btn chico" data-ad="cli" data-h="' + esc(h.id) + '">Activar cliente</button>' + ((h.limiteIntegrantes || LIMITE_INTEGRANTES) > 1 ? '<button class="btn sec chico" data-ad="pers" data-h="' + esc(h.id) + '">Volver a personal</button>' : '<button class="btn chico" data-ad="plus" data-h="' + esc(h.id) + '">Activar Plus familiar (hasta ' + LIMITE_PLUS + ')</button>') + '</div></div>';
       }).join('') || 'Sin hogares todavía.';
     } catch (e) { $('#admL', v).textContent = 'Error: ' + (e.code || e.message); }
   };
@@ -848,7 +851,8 @@ async function abrirAdmin(){
     const ref = db.collection('hogares').doc(b.dataset.h);
     try {
       if (b.dataset.ad === 'cli') await ref.update({demoHasta: null});
-      else if (b.dataset.ad === 'int') await ref.update({limiteIntegrantes: FV.increment(1)});
+      else if (b.dataset.ad === 'plus') await ref.update({limiteIntegrantes: LIMITE_PLUS});
+      else if (b.dataset.ad === 'pers') { const s2 = await ref.get(); if ((s2.data().miembros || []).length > 1) return toast('Primero hay que quitar a los otros integrantes'); await ref.update({limiteIntegrantes: LIMITE_INTEGRANTES}); }
       else { const s = await ref.get(), cur = s.data().demoHasta ? s.data().demoHasta.toMillis() : Date.now(); await ref.update({demoHasta: TS.fromMillis(Math.max(Date.now(), cur) + Number(b.dataset.ad) * 86400000)}); }
       toast('Listo ✓'); pintar();
     } catch (er) { toast('Error: ' + (er.code || er.message)); }
