@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
   GastAr — gastos del hogar, compartidos y con avisos
-  Versión: 1.5.0
+  Versión: 1.6.0
   Fecha: 2026-11-18
   Changelog:
+    1.6.0 — Vencimientos con almanaque: se elige la fecha del primer vencimiento (este mes, el otro o uno pasado) y se repite ese día cada mes. Vale para gastos mensuales y cuotas de deudas.
     1.5.0 — Deudas: la cuota aparece en Inicio y suma a los totales del mes; interés mensual; fecha objetivo (calcula la cuota); deuda total congelada (sin cuota ni interés); avisos push de cuotas.
     1.4.0 — Inicio vuelve a mostrar los 8 más cercanos o vencidos. Nueva solapa Deudas: monto, plan de pagos (cuota, cantidad, día), abonos y saldo. Reglas v1.0.4.
     1.3.1 — Colores por días que faltan: rojo (vencido o 1 día), naranja (2 a 5), amarillo (6 a 8), verde (9 o más).
@@ -197,7 +198,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mut);margin:10p
 <script src="demo.js"></script>
 <script>
 /* ═══════════════ CONFIG (se completa una sola vez) ═══════════════ */
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBlftKE_pqK6afzv1pe8PS58sYlb2Z93Uk',
   authDomain: 'charlar-e5408.firebaseapp.com',
@@ -673,8 +674,7 @@ function abrirGasto(id){
     '<div class="grid2"><div><label class="f">Monto</label><input class="in" id="gMonto" inputmode="decimal" placeholder="Ej: 85000" value="' + (g ? esc(g.monto) : '') + '"></div>' +
     '<div><label class="f">Moneda</label><div class="seg" id="gMon"><button data-v="ARS" class="' + (formG.moneda === 'ARS' ? 'on' : '') + '">$ Pesos</button><button data-v="USD" class="' + (formG.moneda === 'USD' ? 'on' : '') + '">US$</button></div></div></div>' +
     '<label class="f">¿Cada cuánto?</label><div class="seg" id="gTipo"><button data-v="fijo" class="' + (formG.tipo === 'fijo' ? 'on' : '') + '">Todos los meses</button><button data-v="unico" class="' + (formG.tipo === 'unico' ? 'on' : '') + '">Una sola vez</button></div>' +
-    '<div id="bFijo"><label class="f">Día del mes que vence (1 a 31)</label><input class="in" id="gDia" inputmode="numeric" maxlength="2" value="' + (g && g.dia ? g.dia : '') + '">' +
-      (g ? '' : '<label class="f">Empieza en</label><select class="in" id="gDesde"><option value="este">Este mes</option><option value="prox">El mes que viene</option></select>') + '</div>' +
+    '<div id="bFijo"><label class="f">' + (g ? 'Fecha de vencimiento (se usa el día; se repite todos los meses)' : 'Primer vencimiento (después se repite todos los meses ese día)') + '</label><input class="in" type="date" id="gPrimera" value="' + esc(g && g.dia ? fechaCuota({dia: g.dia}, Core.ymNow()) : Core.hoy()) + '"></div>' +
     '<div id="bUnico"><label class="f">Fecha de vencimiento</label><input class="in" type="date" id="gFecha" value="' + esc(g && g.fecha ? g.fecha : Core.hoy()) + '"></div>' +
     '<div id="bSaldo"><label class="f">Saldo total de la deuda (opcional)</label><input class="in" id="gSaldo" inputmode="decimal" value="' + (g && g.saldo ? esc(g.saldo) : '') + '"></div>' +
     '<label class="f">Nota (opcional)</label><input class="in" id="gNota" maxlength="120" value="' + esc(g ? g.nota || '' : '') + '">' +
@@ -684,12 +684,9 @@ function abrirGasto(id){
   const ajustar = () => {
     $('#bFijo', v).classList.toggle('oculto', formG.tipo !== 'fijo'); $('#bUnico', v).classList.toggle('oculto', formG.tipo !== 'unico');
     $('#bSaldo', v).classList.toggle('oculto', $('#gCat', v).value !== 'deudas');
-    const d = $('#gDesde', v); if (d && !d.dataset.t) { d.value = (Number($('#gDia', v).value) || 99) >= hoyD ? 'este' : 'prox'; }
   };
   ajustar();
   $('#gCat', v).addEventListener('change', ajustar);
-  $('#gDia', v).addEventListener('input', ajustar);
-  const gd = $('#gDesde', v); if (gd) gd.addEventListener('change', () => gd.dataset.t = '1');
   v.addEventListener('click', async e => {
     const sg = e.target.closest('.seg button');
     if (sg) { const p = sg.parentElement; p.querySelectorAll('button').forEach(b => b.classList.remove('on')); sg.classList.add('on'); if (p.id === 'gImp') formG.imp = sg.dataset.v; else if (p.id === 'gMon') formG.moneda = sg.dataset.v; else { formG.tipo = sg.dataset.v; ajustar(); } return; }
@@ -708,9 +705,8 @@ async function guardarGasto(v, g){
   const doc = {nombre, categoria: cat, monto, moneda: formG.moneda, tipo: formG.tipo, importancia: formG.imp, nota: $('#gNota', v).value.trim()};
   const borrar = [];
   if (formG.tipo === 'fijo') {
-    const dia = parseInt($('#gDia', v).value, 10);
-    if (!(dia >= 1 && dia <= 31)) return err('El día tiene que ser de 1 a 31.');
-    doc.dia = dia; borrar.push('fecha');
+    const fp = $('#gPrimera', v).value; if (!fp) return err('Elegí la fecha de vencimiento en el almanaque.');
+    doc.dia = parseInt(fp.slice(8, 10), 10); borrar.push('fecha');
   } else {
     const f = $('#gFecha', v).value; if (!f) return err('Elegí la fecha.');
     doc.fecha = f; borrar.push('dia');
@@ -722,7 +718,7 @@ async function guardarGasto(v, g){
     else {
       const cur = Core.ymNow();
       const nuevo = Object.assign({}, doc, {creadoPor: S.user.uid, creado: FV.serverTimestamp()});
-      if (formG.tipo === 'fijo') nuevo.desdeMes = ($('#gDesde', v).value === 'prox') ? Core.addMonths(cur, 1) : cur;
+      if (formG.tipo === 'fijo') nuevo.desdeMes = $('#gPrimera', v).value.slice(0, 7);
       await col.add(nuevo);
     }
     v.remove(); toast(g ? 'Gasto actualizado' : 'Gasto agregado');
@@ -859,7 +855,7 @@ function abrirDeuda(id){
     '<div id="dPlan"><div class="mini" style="margin-top:10px"><b>Plan de pagos</b> (todo opcional)</div>' +
     '<div class="grid2"><div><label class="f">Cuota por mes</label><input class="in" id="dCuota" inputmode="decimal" placeholder="Ej: 250000" value="' + esc(d && d.cuotaMonto ? d.cuotaMonto : '') + '"></div>' +
     '<div><label class="f">Cantidad de cuotas</label><input class="in" id="dCuotas" inputmode="numeric" placeholder="Ej: 12" value="' + esc(d && d.cuotas ? d.cuotas : '') + '"></div></div>' +
-    '<div class="grid2"><div><label class="f">Día que vence la cuota</label><input class="in" id="dDia" inputmode="numeric" placeholder="Ej: 10" value="' + esc(d && d.dia ? d.dia : '') + '"></div>' +
+    '<div class="grid2"><div><label class="f">' + (d ? 'Vence la cuota (se usa el día)' : 'Fecha de la primera cuota') + '</label><input class="in" type="date" id="dFecha" value="' + esc(d && d.dia ? fechaCuota(d, Core.ymNow()) : '') + '"></div>' +
     '<div><label class="f">Interés mensual (%)</label><input class="in" id="dTasa" inputmode="decimal" placeholder="Ej: 5" value="' + esc(d && d.tasa ? d.tasa : '') + '"></div></div>' +
     '<label class="f">Quiero terminar de pagarla en… (si dejás la cuota vacía, la calculo)</label><select class="in" id="dHasta">' + opMes + '</select></div>' +
     '<label class="f">Nota (opcional)</label><input class="in" id="dNota" maxlength="200" value="' + esc(d ? d.nota || '' : '') + '">' +
@@ -884,6 +880,7 @@ function abrirDeuda(id){
     const nombre = $('#dNombre', v).value.trim(), total = Core.parseMonto($('#dTotal', v).value);
     if (!nombre) return err('Poné un nombre.');
     if (isNaN(total) || total < 0) return err('Escribí el monto total con números. Ej: 5000000');
+    let desdeElegido = '';
     const doc = {nombre, acreedor: $('#dAcre', v).value.trim(), total, moneda: f.moneda, modo: f.modo, nota: $('#dNota', v).value.trim()};
     if (f.modo === 'congelada') Object.assign(doc, {cuotaMonto: 0, cuotas: 0, dia: 0, tasa: 0, hasta: ''});
     else {
@@ -891,19 +888,19 @@ function abrirDeuda(id){
       if (isNaN(cm) || cm < 0) return err('La cuota tiene que ser un número.');
       const tasa = $('#dTasa', v).value.trim() ? Core.parseMonto($('#dTasa', v).value) : 0;
       if (isNaN(tasa) || tasa < 0 || tasa > 100) return err('El interés mensual tiene que ser un número entre 0 y 100.');
-      const dia = parseInt($('#dDia', v).value, 10) || 0;
-      if (dia && !(dia >= 1 && dia <= 31)) return err('El día tiene que ser de 1 a 31.');
+      const fc = $('#dFecha', v).value, dia = fc ? parseInt(fc.slice(8, 10), 10) : 0;
+      desdeElegido = fc ? fc.slice(0, 7) : '';
       const hasta = $('#dHasta', v).value;
       Object.assign(doc, {cuotaMonto: cm, cuotas: parseInt($('#dCuotas', v).value, 10) || 0, dia, tasa, hasta});
       if (!cm && hasta) {
-        const tmp = Object.assign({}, d || {}, doc, {abonos: d ? d.abonos || [] : [], desde: d ? desdeDe(d) : Core.ymNow()});
+        const tmp = Object.assign({}, d || {}, doc, {abonos: d ? d.abonos || [] : [], desde: d ? desdeDe(d) : (desdeElegido || Core.ymNow())});
         doc.cuotaMonto = cuotaParaTerminar(tmp, deudaCalc(tmp).saldo);
       }
-      if (doc.cuotaMonto > 0 && !doc.dia) return err('Poné el día del mes en que vence la cuota, así aparece en Inicio.');
+      if (doc.cuotaMonto > 0 && !doc.dia) return err('Elegí en el almanaque la fecha de la cuota, así aparece en Inicio.');
     }
     try {
       if (d) await ref().doc(d.id).update(doc);
-      else await ref().add(Object.assign(doc, {abonos: [], desde: Core.ymNow(), creadoPor: S.user.uid, creado: FV.serverTimestamp()}));
+      else await ref().add(Object.assign(doc, {abonos: [], desde: desdeElegido || Core.ymNow(), creadoPor: S.user.uid, creado: FV.serverTimestamp()}));
       v.remove(); toast(d ? 'Deuda actualizada' : 'Deuda agregada');
     } catch (er) { err(er.code === 'permission-denied' ? 'No se pudo guardar: falta actualizar las reglas o terminó la prueba.' : 'No se pudo guardar (' + (er.code || er.message) + ')'); logError(er.message, er.stack); }
   });
@@ -1036,7 +1033,7 @@ async function restaurarBackup(file){
 function recorrido(){
   const pasos = [
     ['👋 Bienvenido a GastAr', 'Acá ves y controlás todos los gastos del hogar. Lo comparten vos y tu pareja: lo que uno marca como pagado, el otro lo ve al instante.', ''],
-    ['➕ Cargá tus gastos una vez', 'Tocá el botón amarillo <b>+</b>. Poné nombre, monto y el día en que vence. Si se repite todos los meses (alquiler, luz, tarjeta) se carga una sola vez y GastAr lo repite solo.', ''],
+    ['➕ Cargá tus gastos una vez', 'Tocá el botón amarillo <b>+</b>. Poné nombre, monto y elegí en el almanaque la fecha del primer vencimiento (este mes, el que viene o uno ya vencido). Si se repite todos los meses (alquiler, luz, tarjeta) se carga una sola vez y GastAr lo repite solo.', ''],
     ['🚦 Los colores del inicio', 'En el inicio ves los vencimientos de los próximos 31 días. Rojo: vencido o falta 1 día. Naranja: 2 a 5 días. Amarillo: 6 a 8 días. Verde: 9 días o más.',
       '<div class="tour-demo"><div class="venc c-red"><div class="ico">🏠</div><div class="main"><b>Alquiler</b><small>Vence mañana</small></div><div class="monto">$ 450.000</div></div><div class="venc c-org"><div class="ico">💡</div><div class="main"><b>Luz</b><small>Vence en 4 días</small></div><div class="monto">$ 38.000</div></div><div class="venc c-yel"><div class="ico">📱</div><div class="main"><b>Internet</b><small>Vence en 8 días</small></div><div class="monto">$ 22.000</div></div><div class="venc c-grn"><div class="ico">💳</div><div class="main"><b>Tarjeta</b><small>Vence en 14 días</small></div><div class="monto">$ 120.000</div></div></div>'],
     ['✅ Marcá lo que pagás', 'Tocá <b>Pagar</b>, confirmá el monto real y listo. Si te equivocás, en la pestaña Gastos tocás el tilde para deshacerlo.', ''],
