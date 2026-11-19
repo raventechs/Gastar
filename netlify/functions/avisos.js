@@ -5,7 +5,7 @@
   Variables de entorno en Netlify:
     FIREBASE_SERVICE_ACCOUNT_B64  clave de cuenta de servicio de Firebase, en base64 (como en SaludAR)
     CRON_KEY                      una clave larga inventada por vos, para que nadie más pueda disparar la función
-    APP_URL                       (opcional) https://gastar.raventechsapp.com
+    APP_URL                       (opcional) https://raventechs.github.io/Gastar/
   Avisa: 3 días antes, 1 día antes, el mismo día y 1 día después (vencido). Cada aviso se manda una sola vez
   por vencimiento (queda registrado en hogares/{id}/avisos). Solo envía entre las 8 y las 21 hs de Argentina.
 */
@@ -80,7 +80,7 @@ exports.handler = async (event) => {
   if (hora < 8 || hora >= 21) return { statusCode: 200, body: JSON.stringify({ ok: true, omitido: 'fuera de horario', hoy, hora }) };
 
   const admin = fb(), db = admin.firestore();
-  const appUrl = process.env.APP_URL || 'https://gastar.raventechsapp.com';
+  const appUrl = process.env.APP_URL || 'https://raventechs.github.io/Gastar/';
   const resumen = { hoy, hogares: 0, avisosEnviados: 0, tokensLimpiados: 0 };
   try {
     const hogares = await db.collection('hogares').get();

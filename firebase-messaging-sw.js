@@ -31,7 +31,7 @@ self.addEventListener('fetch', e => {
     fetch(req).then(res => {
       if (res && res.ok) { const copia = res.clone(); caches.open(SW_VERSION).then(c => c.put(req, copia)); }
       return res;
-    }).catch(() => caches.match(req).then(r => r || caches.match('/')))
+    }).catch(() => caches.match(req).then(r => r || caches.match('./')))
   );
 });
 
@@ -39,6 +39,6 @@ self.addEventListener('notificationclick', e => {
   e.notification.close();
   e.waitUntil(self.clients.matchAll({type: 'window', includeUncontrolled: true}).then(list => {
     for (const c of list) { if ('focus' in c) return c.focus(); }
-    return self.clients.openWindow('/');
+    return self.clients.openWindow(self.registration.scope);
   }));
 });
